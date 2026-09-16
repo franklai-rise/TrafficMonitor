@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <cstdio>
 
 namespace
 {
@@ -25,7 +26,24 @@ namespace
     std::string JsonString(const std::string& json, const char* key)
     {
         const std::regex expression(std::string("\\\"") + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\""); std::smatch match;
-        return std::regex_search(json, match, expression) ? match[1].str() : "";
+        if (!std::regex_search(json, match, expression)) return "";
+        const auto encoded = match[1].str(); std::string result;
+        for (size_t i = 0; i < encoded.size(); ++i)
+        {
+            if (encoded[i] != '\\' || i + 1 >= encoded.size()) { result += encoded[i]; continue; }
+            const char escaped = encoded[++i];
+            if (escaped == 'n') { result += '\n'; continue; }
+            if (escaped == 'r') { result += '\r'; continue; }
+            if (escaped == 't') { result += '\t'; continue; }
+            if (escaped != 'u' || i + 4 >= encoded.size()) { result += escaped; continue; }
+            const auto hex = encoded.substr(i + 1, 4); unsigned int code = 0;
+            if (sscanf_s(hex.c_str(), "%x", &code) != 1) { result += "\\u"; continue; }
+            i += 4;
+            if (code < 0x80) result += static_cast<char>(code);
+            else if (code < 0x800) { result += static_cast<char>(0xC0 | (code >> 6)); result += static_cast<char>(0x80 | (code & 0x3F)); }
+            else { result += static_cast<char>(0xE0 | (code >> 12)); result += static_cast<char>(0x80 | ((code >> 6) & 0x3F)); result += static_cast<char>(0x80 | (code & 0x3F)); }
+        }
+        return result;
     }
     bool JsonBool(const std::string& json, const char* key)
     {

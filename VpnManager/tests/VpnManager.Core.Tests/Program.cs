@@ -51,7 +51,7 @@ sealed class OfflineTests
     {
         var path = Paths(nameof(SnapshotFormattingHandlesModes)); File.WriteAllText(path.TiziGoRegionFile, "jp"); var fake = new FakeSystem { TiziAdapter = true }; fake.Routes.UnionWith(["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"]);
         var snapshot = new StatusCollector(fake, path).ToSnapshot(new StatusCollector(fake, path).Collect());
-        Require(snapshot.DisplayText == "日本 · TUN · TiziGo", "TiziGo taskbar text");
+        Require(snapshot.DisplayText == "日本\nTUN · TiziGo", "TiziGo taskbar text must use two lines");
     }
     private void SnapshotStoreWritesCamelCaseAtomically()
     {
@@ -62,7 +62,7 @@ sealed class OfflineTests
     private void Ping0GeoResponseSuppliesCountry()
     {
         var geo = Ping0GeoParser.Parse("45.150.165.158\n美国 华盛顿州 西雅圖 — 斯巴达\nAS201106\nSpartan Host Ltd\n");
-        Require(geo?.Ip == "45.150.165.158" && geo.Country == "美国", "ping0 geo response must provide the country");
+        Require(geo?.Ip == "45.150.165.158" && geo.Country == "美国" && geo.Location == "美国 华盛顿州 西雅圖", "ping0 geo response must provide country, state and city without the provider name");
     }
     private static SwitchService Make(FakeSystem fake, VpnPaths path) { var collector = new StatusCollector(fake, path); return new SwitchService(fake, path, collector, new SnapshotStore(path.StateDirectory)); }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

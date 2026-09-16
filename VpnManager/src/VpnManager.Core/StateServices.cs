@@ -48,12 +48,12 @@ public sealed class StatusCollector
     public StatusSnapshot ToSnapshot(ObservedState s, string? error = null)
     {
         var (country, source) = s.Mode switch {
-            VpnMode.TiziGo => (RegionName(s.TiziGoRegion) is not "未知" ? RegionName(s.TiziGoRegion) : s.ExitCountry ?? "未知", RegionName(s.TiziGoRegion) is not "未知" ? "TiziGo 当前区域" : s.ExitCountry is null ? "未读取区域" : "ping0.cc 出口 IP 地理信息"),
-            VpnMode.Clash => (s.ClashCountry ?? s.ExitCountry ?? "未知", s.ClashCountry is not null ? "Clash 节点名称" : s.ExitCountry is null ? "未读取节点" : "ping0.cc 出口 IP 地理信息"),
+            VpnMode.TiziGo => (s.ExitLocation ?? (RegionName(s.TiziGoRegion) is not "未知" ? RegionName(s.TiziGoRegion) : s.ExitCountry ?? "未知"), s.ExitLocation is not null ? "ping0.cc 出口 IP 地理信息" : RegionName(s.TiziGoRegion) is not "未知" ? "TiziGo 当前区域" : s.ExitCountry is null ? "未读取区域" : "ping0.cc 出口 IP 地理信息"),
+            VpnMode.Clash => (s.ExitLocation ?? s.ClashCountry ?? s.ExitCountry ?? "未知", s.ExitLocation is not null ? "ping0.cc 出口 IP 地理信息" : s.ClashCountry is not null ? "Clash 节点名称" : s.ExitCountry is null ? "未读取节点" : "ping0.cc 出口 IP 地理信息"),
             _ => ("未知", "无可用 VPN 状态") };
         var access = s.Mode == VpnMode.Clash ? $"HTTP/SOCKS5 :{VpnPaths.ClashPort}" : s.Mode == VpnMode.TiziGo ? "TUN" : "未连接";
         var software = s.Mode == VpnMode.Clash ? "Clash" : s.Mode == VpnMode.TiziGo ? "TiziGo" : s.Mode == VpnMode.BothActive ? "冲突" : "VPN";
-        var text = s.Mode is VpnMode.Clash or VpnMode.TiziGo ? $"{country} · {access} · {software}" : s.Mode == VpnMode.BothActive ? "VPN 状态冲突" : "VPN 未连接";
+        var text = s.Mode is VpnMode.Clash or VpnMode.TiziGo ? $"{country}\n{access} · {software}" : s.Mode == VpnMode.BothActive ? "VPN 状态冲突" : "VPN 未连接";
         var exit = s.ExitIp is null ? "未刷新" : string.IsNullOrWhiteSpace(s.ExitLocation) ? s.ExitIp : $"{s.ExitIp}（{s.ExitLocation}）";
         var tip = $"{text}\n观察时间：{s.ObservedAt:yyyy-MM-dd HH:mm:ss}\n国家来源：{source}\n出口 IP：{exit}\n代理变量：{(s.ProxyMatchesClash ? "匹配 Clash" : s.AnyUserProxy ? "存在非预期值" : "未设置")}";
         if (!string.IsNullOrWhiteSpace(s.Warning ?? error)) tip += $"\n提示：{s.Warning ?? error}";

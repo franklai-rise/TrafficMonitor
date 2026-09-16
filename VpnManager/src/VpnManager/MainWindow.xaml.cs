@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     }
     private async void SwitchClash_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Clash);
     private async void SwitchTiziGo_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.TiziGo);
+    private async void Direct_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Direct);
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshStateAsync();
     private void DisplayStyle_Click(object sender, RoutedEventArgs e)
     {
@@ -71,10 +72,10 @@ public partial class MainWindow : Window
     }
     private async Task SwitchAsync(VpnMode mode)
     {
-        if (_switching) return; _switching = true; ClashButton.IsEnabled = TiziGoButton.IsEnabled = false;
+        if (_switching) return; _switching = true; ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = false;
         try { Append($"请求切换到 {mode}…"); var result = await _switcher.SwitchAsync(mode, CancellationToken.None); Append(result.Summary); StatusText.Text = result.FinalState.Mode.ToString(); StatusDetail.Text = _collector.ToSnapshot(result.FinalState).Tooltip; }
         catch (Exception ex) { Append($"未执行切换：{ex.Message}"); }
-        finally { _switching = false; ClashButton.IsEnabled = TiziGoButton.IsEnabled = true; await RefreshStateAsync(); }
+        finally { _switching = false; ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = true; await RefreshStateAsync(); }
     }
     private void Append(string text) => LogText.AppendText($"{DateTime.Now:HH:mm:ss} {text}{Environment.NewLine}");
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e) { e.Cancel = true; Hide(); }

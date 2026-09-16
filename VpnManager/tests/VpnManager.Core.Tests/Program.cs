@@ -13,10 +13,11 @@ sealed class OfflineTests
         await RefusesWhenCodexRunning();
         await TiziGoRequiresAllRoutes();
         await StopFailureRestoresEnvironment();
+        await DirectModeStopsVerifiedVpnAndClearsProxy();
         SnapshotFormattingHandlesModes();
         Ping0GeoResponseSuppliesCountry();
         SnapshotStoreWritesCamelCaseAtomically();
-        Console.WriteLine("Offline switch and snapshot tests passed (7/7).");
+        Console.WriteLine("Offline switch and snapshot tests passed (8/8).");
     }
     private VpnPaths Paths(string name)
     {
@@ -46,6 +47,12 @@ sealed class OfflineTests
         var path = Paths(nameof(StopFailureRestoresEnvironment)); var fake = new FakeSystem { ClashPort = true, TiziAdapter = true, CloseResult = false }; fake.Routes.UnionWith(["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"]); fake.User["HTTP_PROXY"] = "old";
         var result = await Make(fake, path).SwitchAsync(VpnMode.Clash, default);
         Require(!result.Success && result.RestoreAttempted && fake.User["HTTP_PROXY"] == "old", "failed graceful stop must restore snapshot");
+    }
+    private async Task DirectModeStopsVerifiedVpnAndClearsProxy()
+    {
+        var path = Paths(nameof(DirectModeStopsVerifiedVpnAndClearsProxy)); var fake = new FakeSystem { ClashPort = true }; fake.User["HTTP_PROXY"] = fake.User["HTTPS_PROXY"] = fake.User["ALL_PROXY"] = "http://127.0.0.1:7890";
+        var result = await Make(fake, path).SwitchAsync(VpnMode.Direct, default);
+        Require(result.Success && !fake.ClashPort && fake.User["HTTP_PROXY"] is null && fake.User["HTTPS_PROXY"] is null && fake.User["ALL_PROXY"] is null, "direct mode must gracefully stop the verified VPN and clear proxy variables");
     }
     private void SnapshotFormattingHandlesModes()
     {

@@ -7,7 +7,7 @@ $publish = Join-Path $root 'artifacts\manager'
 $icon = Join-Path $root 'src\VpnManager\Assets\VpnManager.ico'
 $plugin = Join-Path $root 'artifacts\plugin\VpnStatusPlugin.dll'
 $state = Join-Path $env:LOCALAPPDATA 'VpnManager'
-$shortcutIcon = Join-Path $state 'VpnManager-blue.ico'
+$shortcutIcon = Join-Path $state 'VpnManager-blue-v2.ico'
 $trafficRoot = 'E:\TrafficMonitor_V1.85_x64\TrafficMonitor'
 $trafficConfig = Join-Path $env:APPDATA 'TrafficMonitor\config.ini'
 
@@ -18,7 +18,9 @@ Copy-Item -LiteralPath $icon -Destination $state -Force
 Copy-Item -LiteralPath $icon -Destination $shortcutIcon -Force
 Write-Host "管理器已部署到 $state"
 $shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'VPN 管理器.lnk'))
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'VPN 管理器.lnk'
+if (Test-Path -LiteralPath $shortcutPath) { Remove-Item -LiteralPath $shortcutPath -Force }
+$shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $state 'VpnManager.exe'
 $shortcut.WorkingDirectory = $state
 $shortcut.IconLocation = "$shortcutIcon,0"

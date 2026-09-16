@@ -57,7 +57,7 @@ sealed class OfflineTests
     {
         var path = Paths(nameof(SnapshotStoreWritesCamelCaseAtomically)); var store = new SnapshotStore(path.StateDirectory);
         store.Write(new StatusSnapshot(1, "日本 · TUN · TiziGo", "tip", "TiziGo", "TUN", "TiziGo", "日本", "test", null, DateTimeOffset.Now, true, null));
-        var raw = File.ReadAllText(store.Path); Require(raw.Contains("\"displayText\""), "plugin snapshot must use camelCase"); Require(store.Read()?.DisplayText.Contains("TiziGo") == true, "snapshot must remain readable");
+        var raw = File.ReadAllText(store.Path); Require(raw.Contains("\"displayText\"") && raw.Contains("日本"), "plugin snapshot must preserve UTF-8 Chinese text"); Require(store.Read()?.DisplayText.Contains("TiziGo") == true, "snapshot must remain readable");
     }
     private void Ping0GeoResponseSuppliesCountry()
     {

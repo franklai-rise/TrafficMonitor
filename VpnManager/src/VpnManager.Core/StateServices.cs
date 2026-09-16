@@ -1,11 +1,12 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
 
 namespace VpnManager.Core;
 
 public sealed class SnapshotStore
 {
     private readonly string _path;
-    private readonly JsonSerializerOptions _json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
+    private readonly JsonSerializerOptions _json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     public SnapshotStore(string directory) { Directory.CreateDirectory(directory); _path = System.IO.Path.Combine(directory, "vpn-status.json"); }
     public string Path => _path;
     public void Write(StatusSnapshot snapshot)

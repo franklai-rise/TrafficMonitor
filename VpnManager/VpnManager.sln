@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VpnManager.Core", "src\VpnManager.Core\VpnManager.Core.csproj", "{B8698F9D-4BD7-4A87-A629-55F7B5E50F7D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VpnManager", "src\VpnManager\VpnManager.csproj", "{BCA50362-4815-4CF1-A153-B4727F72D4A8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VpnManager.Core.Tests", "tests\VpnManager.Core.Tests\VpnManager.Core.Tests.csproj", "{9CCB93A8-813E-4A2B-B579-13A3CBA79072}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B8698F9D-4BD7-4A87-A629-55F7B5E50F7D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8698F9D-4BD7-4A87-A629-55F7B5E50F7D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8698F9D-4BD7-4A87-A629-55F7B5E50F7D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8698F9D-4BD7-4A87-A629-55F7B5E50F7D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BCA50362-4815-4CF1-A153-B4727F72D4A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BCA50362-4815-4CF1-A153-B4727F72D4A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BCA50362-4815-4CF1-A153-B4727F72D4A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BCA50362-4815-4CF1-A153-B4727F72D4A8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9CCB93A8-813E-4A2B-B579-13A3CBA79072}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9CCB93A8-813E-4A2B-B579-13A3CBA79072}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9CCB93A8-813E-4A2B-B579-13A3CBA79072}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9CCB93A8-813E-4A2B-B579-13A3CBA79072}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

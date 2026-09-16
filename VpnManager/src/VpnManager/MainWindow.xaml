@@ -3,7 +3,16 @@
     <StackPanel><TextBlock Text="VPN 管理器" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="切换前请退出 Codex。不会自动重启 Codex 或改动 Windows 系统代理。" Margin="0,6,0,16" Foreground="DimGray"/></StackPanel>
     <Grid Grid.Row="1"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <Border Padding="16" Background="#F3F7FC" CornerRadius="8"><StackPanel><TextBlock Text="当前状态" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" FontSize="20" Margin="0,6,0,0"/><TextBlock x:Name="StatusDetail" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="DimGray"/></StackPanel></Border>
-      <WrapPanel Grid.Row="1" Margin="0,18,0,12"><Button x:Name="ClashButton" Content="切换到 Clash" Width="150" Height="38" Click="SwitchClash_Click"/><Button x:Name="TiziGoButton" Content="切换到 TiziGo" Width="150" Height="38" Margin="12,0,0,0" Click="SwitchTiziGo_Click"/><Button x:Name="DirectButton" Content="关闭 VPN（直连）" Width="150" Height="38" Margin="12,0,0,0" Click="Direct_Click"/><Button Content="刷新状态" Width="110" Height="38" Margin="12,0,0,0" Click="Refresh_Click"/><Button Content="显示样式…" Width="100" Height="38" Margin="12,0,0,0" Click="DisplayStyle_Click"/><CheckBox x:Name="ExitIpEnabled" Content="刷新出口 IP 和地区" IsChecked="True" VerticalAlignment="Center" Margin="16,0,0,0" ToolTip="启用后每 60 秒按当前已选择的路径查询一次 ping0.cc；可随时关闭。"/></WrapPanel>
+      <Grid Grid.Row="1" Margin="0,18,0,12">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Button x:Name="ClashButton" Grid.Row="0" Grid.Column="0" Content="切换到 Clash" Height="38" Margin="0,0,6,6" Click="SwitchClash_Click"/>
+        <Button x:Name="TiziGoButton" Grid.Row="0" Grid.Column="1" Content="切换到 TiziGo" Height="38" Margin="3,0,3,6" Click="SwitchTiziGo_Click"/>
+        <Button x:Name="DirectButton" Grid.Row="0" Grid.Column="2" Content="关闭 VPN（直连）" Height="38" Margin="6,0,0,6" Click="Direct_Click"/>
+        <Button Grid.Row="1" Grid.Column="0" Content="刷新状态" Height="36" Margin="0,0,6,0" Click="Refresh_Click"/>
+        <Button Grid.Row="1" Grid.Column="1" Content="显示样式…" Height="36" Margin="3,0" Click="DisplayStyle_Click"/>
+        <CheckBox x:Name="ExitIpEnabled" Grid.Row="1" Grid.Column="2" Content="刷新出口 IP 和地区" IsChecked="True" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="6,0,0,0" ToolTip="启用后每 60 秒按当前已选择的路径查询一次 ping0.cc；可随时关闭。"/>
+      </Grid>
       <TextBox Grid.Row="2" x:Name="LogText" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="#161B22" Foreground="#D7E3F4" FontFamily="Consolas" Padding="12"/>
     </Grid>
     <TextBlock Grid.Row="2" Text="基础网络可达不等于 Codex 已验证；真实切换验收请在空闲时段进行。" Foreground="DimGray" Margin="0,14,0,0"/>

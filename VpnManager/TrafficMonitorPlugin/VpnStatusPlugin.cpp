@@ -5,6 +5,7 @@
 #include <fstream>
 #include <regex>
 #include <cstdio>
+#include <algorithm>
 
 namespace
 {
@@ -12,6 +13,11 @@ namespace
     {
         wchar_t buffer[MAX_PATH]{}; GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
         return std::wstring(buffer) + L"\\VpnManager\\vpn-status.json";
+    }
+    std::wstring SettingsPath()
+    {
+        wchar_t buffer[MAX_PATH]{}; GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
+        return std::wstring(buffer) + L"\\VpnManager\\vpn-display-settings.ini";
     }
     std::wstring Utf8ToWide(const std::string& value)
     {
@@ -54,6 +60,7 @@ namespace
 
 void VpnStatusItem::Refresh()
 {
+    LoadDisplaySettings();
     const auto path = StatePath();
     std::error_code error;
     if (!std::filesystem::exists(path, error) || std::filesystem::last_write_time(path, error) < std::filesystem::file_time_type::clock::now() - std::chrono::seconds(10))
@@ -69,7 +76,33 @@ const wchar_t* VpnStatusItem::GetItemName() const { return L"VPN 状态"; }
 const wchar_t* VpnStatusItem::GetItemId() const { return L"vpn-manager-status-v1"; }
 const wchar_t* VpnStatusItem::GetItemLableText() const { return L""; }
 const wchar_t* VpnStatusItem::GetItemValueText() const { return m_value.c_str(); }
-const wchar_t* VpnStatusItem::GetItemValueSampleText() const { return L"美国 · HTTP/SOCKS5 :7890 · Clash"; }
+const wchar_t* VpnStatusItem::GetItemValueSampleText() const { return L"美国 加利福尼亚州 洛杉矶\nHTTP/SOCKS5 :7890 · Clash"; }
+void VpnStatusItem::LoadDisplaySettings()
+{
+    const auto path = SettingsPath(); wchar_t font[LF_FACESIZE]{}, color[16]{}, align[16]{};
+    GetPrivateProfileStringW(L"display", L"font_name", L"Microsoft YaHei UI", font, LF_FACESIZE, path.c_str());
+    GetPrivateProfileStringW(L"display", L"color", L"#1E77CF", color, 16, path.c_str());
+    GetPrivateProfileStringW(L"display", L"alignment", L"left", align, 16, path.c_str());
+    m_settings.font_name = font; m_settings.font_size = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"display", L"font_size", 13, path.c_str())), 8, 28);
+    unsigned int red = 30, green = 119, blue = 207; if (swscanf_s(color, L"#%02x%02x%02x", &red, &green, &blue) == 3) m_settings.color = RGB(red, green, blue);
+    const std::wstring value = align; m_settings.alignment = value == L"center" ? IPluginDrawer::CENTER : value == L"right" ? IPluginDrawer::RIGHT : IPluginDrawer::LEFT;
+}
+int VpnStatusItem::GetItemWidthEx(void* hDC) const
+{
+    const auto dc = static_cast<HDC>(hDC); const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
+    const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
+    const auto previous = SelectObject(dc, font); SIZE size{}; int widest = 0; size_t start = 0;
+    while (start <= m_value.size()) { const auto end = m_value.find(L'\n', start); const auto length = (end == std::wstring::npos ? m_value.size() : end) - start; GetTextExtentPoint32W(dc, m_value.c_str() + start, static_cast<int>(length), &size); widest = widest > size.cx ? widest : size.cx; if (end == std::wstring::npos) break; start = end + 1; }
+    SelectObject(dc, previous); DeleteObject(font); return widest + 12;
+}
+void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
+{
+    const auto dc = static_cast<HDC>(hDC); const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
+    const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
+    const auto previous = SelectObject(dc, font); const auto old_color = SetTextColor(dc, m_settings.color); const auto old_mode = SetBkMode(dc, TRANSPARENT);
+    UINT format = DT_TOP | DT_WORDBREAK | DT_NOPREFIX | (m_settings.alignment == IPluginDrawer::CENTER ? DT_CENTER : m_settings.alignment == IPluginDrawer::RIGHT ? DT_RIGHT : DT_LEFT); RECT rect{ x + 6, y, x + w - 6, y + h }; DrawTextW(dc, m_value.c_str(), -1, &rect, format);
+    SetBkMode(dc, old_mode); SetTextColor(dc, old_color); SelectObject(dc, previous); DeleteObject(font);
+}
 int VpnStatusItem::OnMouseEvent(MouseEventType type, int, int, void*, int)
 {
     if (type != MT_LCLICKED) return 0;

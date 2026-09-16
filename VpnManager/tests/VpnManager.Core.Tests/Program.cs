@@ -74,7 +74,7 @@ sealed class FakeSystem : ISystemGateway
     public bool IsProcessRunningAtPath(string path) => path.EndsWith("Clash.exe") ? ClashPort : TiziAdapter;
     public bool IsPortListening(int port) => port == VpnPaths.ClashPort && ClashPort;
     public bool IsAdapterUp(string adapterName) => TiziAdapter;
-    public IReadOnlyCollection<string> GetRoutesForAdapter(string adapterName) => Routes;
+    public IReadOnlyCollection<string> GetRoutesForAdapter(string adapterName, bool forceRefresh = false) => Routes;
     public bool IsCodexRunning() => Codex;
     public void Start(string executablePath) { StartCount++; if (StartFails) return; if (executablePath.EndsWith("Clash.exe")) ClashPort = true; else { TiziAdapter = true; Routes.UnionWith(["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"]); } }
     public bool RequestCloseAtPath(string executablePath) { if (!CloseResult) return false; if (executablePath.EndsWith("Clash.exe")) ClashPort = false; else { TiziAdapter = false; Routes.Clear(); } return true; }

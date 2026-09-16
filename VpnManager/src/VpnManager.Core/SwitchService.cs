@@ -8,7 +8,7 @@ public sealed class SwitchService
     public async Task<SwitchResult> SwitchAsync(VpnMode target, CancellationToken token)
     {
         if (target is not (VpnMode.Clash or VpnMode.TiziGo)) throw new ArgumentOutOfRangeException(nameof(target));
-        var initial = _collector.Collect();
+        var initial = _collector.Collect(forceRouteRefresh: true);
         if (initial.CodexRunning) return new(false, "检测到 Codex 正在运行。为避免中断，未执行切换。", initial, false, false);
         var environment = CaptureEnvironment();
         var restoreAttempted = false; var restoreSucceeded = false;
@@ -17,10 +17,10 @@ public sealed class SwitchService
             EnsureFilesExist(target);
             await StartAndVerifyTargetAsync(target, token);
             await StopOppositeAsync(target, token);
-            var finalBeforeEnv = _collector.Collect();
+            var finalBeforeEnv = _collector.Collect(forceRouteRefresh: true);
             EnsureFinalTransport(target, finalBeforeEnv);
             ApplyEnvironment(target, environment.NoProxy);
-            var final = _collector.Collect();
+            var final = _collector.Collect(forceRouteRefresh: true);
             _store.Write(_collector.ToSnapshot(final));
             return new(true, $"已切换到 {target}。基础网络状态已确认；重新打开 Codex 后的实际请求仍需验收。", final, false, false);
         }
@@ -28,7 +28,7 @@ public sealed class SwitchService
         {
             restoreAttempted = true;
             restoreSucceeded = await RestoreAsync(initial, environment, token);
-            var final = _collector.Collect();
+            var final = _collector.Collect(forceRouteRefresh: true);
             _store.Write(_collector.ToSnapshot(final, restoreSucceeded ? $"切换失败，已尝试恢复：{ex.Message}" : $"切换失败，恢复未完成：{ex.Message}"));
             return new(false, restoreSucceeded ? $"切换失败，已恢复原状态：{ex.Message}" : $"切换失败且自动恢复未完成：{ex.Message}。请查看日志并手动检查。", final, restoreAttempted, restoreSucceeded);
         }
@@ -88,7 +88,7 @@ public sealed class SwitchService
     private bool HasCompleteTun()
     {
         if (!_system.IsAdapterUp(VpnPaths.TiziGoAdapter)) return false;
-        var routes = _system.GetRoutesForAdapter(VpnPaths.TiziGoAdapter);
+        var routes = _system.GetRoutesForAdapter(VpnPaths.TiziGoAdapter, true);
         return new[] { "0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1" }.All(routes.Contains);
     }
     private void EnsureFilesExist(VpnMode target)

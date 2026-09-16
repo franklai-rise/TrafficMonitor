@@ -24,7 +24,7 @@ public interface ISystemGateway
     bool IsProcessRunningAtPath(string executablePath);
     bool IsPortListening(int port);
     bool IsAdapterUp(string adapterName);
-    IReadOnlyCollection<string> GetRoutesForAdapter(string adapterName);
+    IReadOnlyCollection<string> GetRoutesForAdapter(string adapterName, bool forceRefresh = false);
     bool IsCodexRunning();
     void Start(string executablePath);
     bool RequestCloseAtPath(string executablePath);

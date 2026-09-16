@@ -10,8 +10,8 @@ namespace VpnManager;
 public partial class MainWindow : Window
 {
     private readonly WindowsSystemGateway _system = new(); private readonly VpnPaths _paths = VpnPaths.Default;
-    private readonly StatusCollector _collector; private readonly SnapshotStore _store; private readonly SwitchService _switcher; private readonly ClashControllerResolver _clashResolver; private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
-    private readonly Forms.NotifyIcon _tray; private bool _switching; private DateTimeOffset _lastExitIpRefresh = DateTimeOffset.MinValue; private string? _exitIp; private string? _exitCountry; private string? _exitLocation;
+    private readonly StatusCollector _collector; private readonly SnapshotStore _store; private readonly SwitchService _switcher; private readonly ClashControllerResolver _clashResolver; private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly Forms.NotifyIcon _tray; private bool _switching; private bool _refreshing; private DateTimeOffset _lastExitIpRefresh = DateTimeOffset.MinValue; private DateTimeOffset _lastNodeRefresh = DateTimeOffset.MinValue; private string? _exitIp; private string? _exitCountry; private string? _exitLocation; private string? _clashNode; private string? _clashCountry;
     public MainWindow()
     {
         InitializeComponent(); _collector = new(_system, _paths); _store = new(_paths.StateDirectory); _switcher = new(_system, _paths, _collector, _store); _clashResolver = new(_paths.ClashConfig);
@@ -23,11 +23,18 @@ public partial class MainWindow : Window
     private void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); }
     private async Task RefreshStateAsync()
     {
-        if (_switching) return;
-        await RefreshExitIpIfEnabledAsync();
-        var seed = _collector.Collect(_exitIp, _exitCountry, _exitLocation); var node = seed.Mode == VpnMode.Clash ? await _clashResolver.TryResolveAsync(CancellationToken.None) : (null, null);
-        var state = _collector.Collect(_exitIp, _exitCountry, _exitLocation, node.Item1, node.Item2); var snapshot = _collector.ToSnapshot(state); _store.Write(snapshot);
-        StatusText.Text = snapshot.DisplayText; StatusDetail.Text = snapshot.Tooltip; _tray.Text = snapshot.DisplayText.Length > 63 ? snapshot.DisplayText[..63] : snapshot.DisplayText;
+        if (_switching || _refreshing) return;
+        _refreshing = true;
+        try
+        {
+            await RefreshExitIpIfEnabledAsync();
+            var seed = _collector.Collect(_exitIp, _exitCountry, _exitLocation);
+            if (seed.Mode == VpnMode.Clash && DateTimeOffset.UtcNow - _lastNodeRefresh >= TimeSpan.FromSeconds(30)) { (_clashNode, _clashCountry) = await _clashResolver.TryResolveAsync(CancellationToken.None); _lastNodeRefresh = DateTimeOffset.UtcNow; }
+            if (seed.Mode != VpnMode.Clash) { _clashNode = _clashCountry = null; _lastNodeRefresh = DateTimeOffset.MinValue; }
+            var state = _collector.Collect(_exitIp, _exitCountry, _exitLocation, _clashNode, _clashCountry); var snapshot = _collector.ToSnapshot(state); _store.Write(snapshot);
+            StatusText.Text = snapshot.DisplayText; StatusDetail.Text = snapshot.Tooltip; _tray.Text = snapshot.DisplayText.Length > 63 ? snapshot.DisplayText[..63] : snapshot.DisplayText;
+        }
+        finally { _refreshing = false; }
     }
     private async void SwitchClash_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Clash);
     private async void SwitchTiziGo_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.TiziGo);

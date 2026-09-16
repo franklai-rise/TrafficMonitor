@@ -28,13 +28,13 @@ public sealed class StatusCollector
     private static readonly string[] ProxyNames = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
     private readonly ISystemGateway _system; private readonly VpnPaths _paths;
     public StatusCollector(ISystemGateway system, VpnPaths paths) { _system = system; _paths = paths; }
-    public ObservedState Collect(string? exitIp = null, string? exitCountry = null, string? exitLocation = null, string? clashNode = null, string? clashCountry = null)
+    public ObservedState Collect(string? exitIp = null, string? exitCountry = null, string? exitLocation = null, string? clashNode = null, string? clashCountry = null, bool forceRouteRefresh = false)
     {
         var clashProcess = _system.IsProcessRunningAtPath(_paths.ClashExe);
         var port = _system.IsPortListening(VpnPaths.ClashPort);
         var tizi = _system.IsProcessRunningAtPath(_paths.TiziGoExe);
         var adapter = _system.IsAdapterUp(VpnPaths.TiziGoAdapter);
-        var routes = _system.GetRoutesForAdapter(VpnPaths.TiziGoAdapter);
+        var routes = adapter ? _system.GetRoutesForAdapter(VpnPaths.TiziGoAdapter, forceRouteRefresh) : Array.Empty<string>();
         var complete = new[] { "0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1" }.All(routes.Contains);
         var expected = $"http://127.0.0.1:{VpnPaths.ClashPort}";
         var values = ProxyNames.Select(_system.GetUserEnvironment).ToArray();

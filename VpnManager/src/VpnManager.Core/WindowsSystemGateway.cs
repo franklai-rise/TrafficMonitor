@@ -7,15 +7,24 @@ namespace VpnManager.Core;
 
 public sealed class WindowsSystemGateway : ISystemGateway
 {
-    public bool IsProcessRunningAtPath(string executablePath) => Process.GetProcesses().Any(p => { try { return string.Equals(p.MainModule?.FileName, executablePath, StringComparison.OrdinalIgnoreCase); } catch { return false; } finally { p.Dispose(); } });
+    private readonly object _routeCacheLock = new();
+    private readonly Dictionary<string, (DateTimeOffset CapturedAt, IReadOnlyCollection<string> Routes)> _routeCache = new(StringComparer.OrdinalIgnoreCase);
+    public bool IsProcessRunningAtPath(string executablePath)
+    {
+        var name = Path.GetFileNameWithoutExtension(executablePath);
+        return Process.GetProcessesByName(name).Any(process => { try { return string.Equals(process.MainModule?.FileName, executablePath, StringComparison.OrdinalIgnoreCase); } catch { return false; } finally { process.Dispose(); } });
+    }
     public bool IsPortListening(int port) => IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(x => x.Port == port);
     public bool IsAdapterUp(string adapterName) => NetworkInterface.GetAllNetworkInterfaces().Any(x => string.Equals(x.Name, adapterName, StringComparison.OrdinalIgnoreCase) && x.OperationalStatus == OperationalStatus.Up);
-    public IReadOnlyCollection<string> GetRoutesForAdapter(string adapterName)
+    public IReadOnlyCollection<string> GetRoutesForAdapter(string adapterName, bool forceRefresh = false)
     {
+        lock (_routeCacheLock) if (!forceRefresh && _routeCache.TryGetValue(adapterName, out var cached) && DateTimeOffset.UtcNow - cached.CapturedAt < TimeSpan.FromSeconds(10)) return cached.Routes;
         var start = new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -Command \"Get-NetRoute -ErrorAction SilentlyContinue | Where-Object {{$_.InterfaceAlias -eq '{adapterName}'}} | Select-Object -ExpandProperty DestinationPrefix\"") { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
         using var process = Process.Start(start); if (process is null) return [];
         var text = process.StandardOutput.ReadToEnd(); process.WaitForExit(3000);
-        return text.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var routes = text.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        lock (_routeCacheLock) _routeCache[adapterName] = (DateTimeOffset.UtcNow, routes);
+        return routes;
     }
     public bool IsCodexRunning() => Process.GetProcessesByName("codex").Length > 0 || Process.GetProcessesByName("codex-code-mode-host").Length > 0;
     public void Start(string executablePath)

@@ -80,11 +80,17 @@ public partial class MainWindow : Window
     private async Task SwitchAsync(VpnMode mode)
     {
         if (_switching) return; _switching = true; ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = false;
-        try { Append($"请求切换到 {mode}…"); var result = await _switcher.SwitchAsync(mode, CancellationToken.None); Append(result.Summary); StatusText.Text = result.FinalState.Mode.ToString(); StatusDetail.Text = _collector.ToSnapshot(result.FinalState).Tooltip; }
-        catch (Exception ex) { Append($"未执行切换：{ex.Message}"); }
+        var requestedAt = DateTime.Now;
+        try { Append($"请求切换到 {mode}…"); SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {mode}…", "#1D4ED8"); var result = await _switcher.SwitchAsync(mode, CancellationToken.None); Append(result.Summary); SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {mode}…{Environment.NewLine}{DateTime.Now:HH:mm:ss} {result.Summary}", result.Success ? "#166534" : "#B42318"); StatusText.Text = result.FinalState.Mode.ToString(); StatusDetail.Text = _collector.ToSnapshot(result.FinalState).Tooltip; }
+        catch (Exception ex) { var message = $"未执行切换：{ex.Message}"; Append(message); SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {mode}…{Environment.NewLine}{DateTime.Now:HH:mm:ss} {message}", "#B42318"); }
         finally { _switching = false; ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = true; await RefreshStateAsync(); }
     }
     private void Append(string text) => LogText.AppendText($"{DateTime.Now:HH:mm:ss} {text}{Environment.NewLine}");
+    private void SetActionSummary(string text, string color)
+    {
+        ActionSummaryText.Text = text;
+        ActionSummaryText.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
+    }
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e) { e.Cancel = true; Hide(); }
     protected override void OnClosed(EventArgs e) { _timer.Stop(); _tray.Visible = false; _tray.Dispose(); base.OnClosed(e); }
     private sealed record DisplaySettings(string FontName, int FontSize, string Color, string Alignment)

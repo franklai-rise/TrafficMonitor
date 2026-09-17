@@ -6,6 +6,7 @@ namespace VpnManager;
 public partial class App : System.Windows.Application
 {
     private Mutex? _mutex;
+    private bool _ownsMutex;
     protected override void OnStartup(StartupEventArgs e)
     {
         var installedDirectory = Path.Combine(Environment.ExpandEnvironmentVariables("%USERPROFILE%"), "AppData", "Local", "VpnManager");
@@ -17,9 +18,15 @@ public partial class App : System.Windows.Application
             Shutdown(); return;
         }
         _mutex = new Mutex(true, "Local\\VpnManager.SingleInstance", out var first);
+        _ownsMutex = first;
         if (!first) { Shutdown(); return; }
         var startupDirect = e.Args.Any(arg => string.Equals(arg, "--startup-direct", StringComparison.OrdinalIgnoreCase));
         base.OnStartup(e); new MainWindow(startupDirect).Show();
     }
-    protected override void OnExit(ExitEventArgs e) { _mutex?.ReleaseMutex(); _mutex?.Dispose(); base.OnExit(e); }
+    protected override void OnExit(ExitEventArgs e)
+    {
+        if (_ownsMutex) _mutex?.ReleaseMutex();
+        _mutex?.Dispose();
+        base.OnExit(e);
+    }
 }

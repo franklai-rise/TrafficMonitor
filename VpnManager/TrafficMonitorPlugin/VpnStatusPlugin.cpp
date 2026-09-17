@@ -9,15 +9,25 @@
 
 namespace
 {
+    std::wstring UserLocalAppData()
+    {
+        // TrafficMonitor may have been started by a process with a stale LOCALAPPDATA.
+        // USERPROFILE is stable for the interactive user and matches the manager's snapshot path.
+        wchar_t profile[MAX_PATH]{};
+        if (GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH) > 0)
+            return std::wstring(profile) + L"\\AppData\\Local";
+
+        wchar_t local[MAX_PATH]{};
+        GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+        return local;
+    }
     std::wstring StatePath()
     {
-        wchar_t buffer[MAX_PATH]{}; GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
-        return std::wstring(buffer) + L"\\VpnManager\\vpn-status.json";
+        return UserLocalAppData() + L"\\VpnManager\\vpn-status.json";
     }
     std::wstring SettingsPath()
     {
-        wchar_t buffer[MAX_PATH]{}; GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
-        return std::wstring(buffer) + L"\\VpnManager\\vpn-display-settings.ini";
+        return UserLocalAppData() + L"\\VpnManager\\vpn-display-settings.ini";
     }
     std::wstring Utf8ToWide(const std::string& value)
     {
@@ -58,8 +68,11 @@ namespace
     }
 }
 
-void VpnStatusItem::Refresh()
+void VpnStatusItem::Refresh(bool force)
 {
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && now - m_last_snapshot_read < std::chrono::seconds(1)) return;
+    m_last_snapshot_read = now;
     LoadDisplaySettings();
     const auto path = StatePath();
     std::error_code error;
@@ -97,6 +110,9 @@ int VpnStatusItem::GetItemWidthEx(void* hDC) const
 }
 void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
 {
+    // DataRequired is not guaranteed after TrafficMonitor starts before the manager.
+    // Re-read on redraw, throttled to once per second, so the initial stale label self-heals.
+    Refresh();
     const auto dc = static_cast<HDC>(hDC); const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
     const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
     const auto previous = SelectObject(dc, font); const auto old_color = SetTextColor(dc, m_settings.color); const auto old_mode = SetBkMode(dc, TRANSPARENT);
@@ -106,8 +122,7 @@ void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
 int VpnStatusItem::OnMouseEvent(MouseEventType type, int, int, void*, int)
 {
     if (type != MT_LCLICKED) return 0;
-    wchar_t localAppData[MAX_PATH]{}; GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
-    const std::wstring app = std::wstring(localAppData) + L"\\VpnManager\\VpnManager.exe";
+    const std::wstring app = UserLocalAppData() + L"\\VpnManager\\VpnManager.exe";
     if (std::filesystem::exists(app)) ShellExecuteW(nullptr, L"open", app.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return 1;
 }

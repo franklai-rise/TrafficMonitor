@@ -1,5 +1,6 @@
 #pragma once
 #include "PluginInterface.h"
+#include <chrono>
 #include <string>
 
 struct VpnDisplaySettings
@@ -24,12 +25,13 @@ public:
     void DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode) override;
     int IsDoubleLineExclusive() const override { return 1; }
     int OnMouseEvent(MouseEventType type, int x, int y, void* hWnd, int flag) override;
-    void Refresh();
+    void Refresh(bool force = false);
     const std::wstring& Tooltip() const { return m_tooltip; }
 private:
     std::wstring m_value{ L"VPN 状态过期" };
     std::wstring m_tooltip{ L"VPN 管理器尚未写入状态快照。" };
     VpnDisplaySettings m_settings;
+    std::chrono::steady_clock::time_point m_last_snapshot_read{};
     void LoadDisplaySettings();
 };
 

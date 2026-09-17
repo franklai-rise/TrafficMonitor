@@ -11,14 +11,15 @@ public partial class MainWindow : Window
 {
     private readonly WindowsSystemGateway _system = new(); private readonly VpnPaths _paths = VpnPaths.Default;
     private readonly StatusCollector _collector; private readonly SnapshotStore _store; private readonly SwitchService _switcher; private readonly ClashControllerResolver _clashResolver; private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
-    private readonly Forms.NotifyIcon _tray; private bool _switching; private bool _refreshing; private DateTimeOffset _lastExitIpRefresh = DateTimeOffset.MinValue; private DateTimeOffset _lastNodeRefresh = DateTimeOffset.MinValue; private string? _exitIp; private string? _exitCountry; private string? _exitLocation; private string? _clashNode; private string? _clashCountry;
-    public MainWindow()
+    private readonly Forms.NotifyIcon _tray; private readonly bool _startupDirect; private bool _switching; private bool _refreshing; private DateTimeOffset _lastExitIpRefresh = DateTimeOffset.MinValue; private DateTimeOffset _lastNodeRefresh = DateTimeOffset.MinValue; private string? _exitIp; private string? _exitCountry; private string? _exitLocation; private string? _clashNode; private string? _clashCountry;
+    public MainWindow(bool startupDirect = false)
     {
+        _startupDirect = startupDirect;
         InitializeComponent(); _collector = new(_system, _paths); _store = new(_paths.StateDirectory); _switcher = new(_system, _paths, _collector, _store); _clashResolver = new(_paths.ClashConfig);
         var iconPath = Path.Combine(AppContext.BaseDirectory, "VpnManager.ico");
         _tray = new Forms.NotifyIcon { Icon = File.Exists(iconPath) ? new System.Drawing.Icon(iconPath) : System.Drawing.SystemIcons.Information, Text = "VPN 管理器", Visible = true, ContextMenuStrip = new Forms.ContextMenuStrip() };
         _tray.ContextMenuStrip.Items.Add("显示管理器", null, (_, _) => Dispatcher.Invoke(ShowFromTray)); _tray.ContextMenuStrip.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(() => { _tray.Visible = false; System.Windows.Application.Current.Shutdown(); })); _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
-        _timer.Tick += async (_, _) => await RefreshStateAsync(); Loaded += async (_, _) => { await RefreshStateAsync(); _timer.Start(); };
+        _timer.Tick += async (_, _) => await RefreshStateAsync(); Loaded += async (_, _) => { await RefreshStateAsync(); _timer.Start(); if (_startupDirect) { Hide(); Append("开机启动：请求进入普通直连模式…"); await SwitchAsync(VpnMode.Direct); Hide(); } };
     }
     private void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); }
     private async Task<bool> RefreshStateAsync(bool forceExitRefresh = false)

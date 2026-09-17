@@ -18,7 +18,8 @@ public partial class App : System.Windows.Application
         }
         _mutex = new Mutex(true, "Local\\VpnManager.SingleInstance", out var first);
         if (!first) { Shutdown(); return; }
-        base.OnStartup(e); new MainWindow().Show();
+        var startupDirect = e.Args.Any(arg => string.Equals(arg, "--startup-direct", StringComparison.OrdinalIgnoreCase));
+        base.OnStartup(e); new MainWindow(startupDirect).Show();
     }
     protected override void OnExit(ExitEventArgs e) { _mutex?.ReleaseMutex(); _mutex?.Dispose(); base.OnExit(e); }
 }

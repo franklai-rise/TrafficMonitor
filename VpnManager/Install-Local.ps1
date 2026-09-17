@@ -1,5 +1,5 @@
 ﻿[CmdletBinding(SupportsShouldProcess)]
-param([switch]$InstallPlugin)
+param([switch]$InstallPlugin, [switch]$InstallStartup)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSCommandPath
@@ -36,4 +36,15 @@ if ($InstallPlugin) {
     $pluginDir = Join-Path $trafficRoot 'plugins'; New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
     Copy-Item -LiteralPath $plugin -Destination $pluginDir -Force
     Write-Host "已备份 TrafficMonitor 配置到 $backupDir，并复制插件 DLL。请启动 TrafficMonitor 后在插件管理中启用“VPN 状态”。"
+}
+
+if ($InstallStartup) {
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $managerExe = Join-Path $state 'VpnManager.exe'
+    $trafficExe = Join-Path $trafficRoot 'TrafficMonitor.exe'
+    if (-not (Test-Path -LiteralPath $managerExe)) { throw '未找到已部署的 VPN 管理器。' }
+    if (-not (Test-Path -LiteralPath $trafficExe)) { throw '未找到 TrafficMonitor。' }
+    New-ItemProperty -Path $runKey -Name 'VpnManager' -Value ('"{0}" --startup-direct' -f $managerExe) -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $runKey -Name 'TrafficMonitor' -Value ('"{0}"' -f $trafficExe) -PropertyType String -Force | Out-Null
+    Write-Host '已设置开机启动：TrafficMonitor 与 VPN 管理器（默认普通直连）。当前网络状态未修改。'
 }

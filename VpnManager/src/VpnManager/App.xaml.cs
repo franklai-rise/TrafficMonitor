@@ -6,7 +6,9 @@ namespace VpnManager;
 public partial class App : System.Windows.Application
 {
     private Mutex? _mutex;
+    private EventWaitHandle? _activationEvent;
     private bool _ownsMutex;
+    private bool _isExiting;
     protected override void OnStartup(StartupEventArgs e)
     {
         var installedDirectory = Path.Combine(Environment.ExpandEnvironmentVariables("%USERPROFILE%"), "AppData", "Local", "VpnManager");
@@ -19,12 +21,36 @@ public partial class App : System.Windows.Application
         }
         _mutex = new Mutex(true, "Local\\VpnManager.SingleInstance", out var first);
         _ownsMutex = first;
-        if (!first) { Shutdown(); return; }
+        if (!first)
+        {
+            try { using var existing = EventWaitHandle.OpenExisting("Local\\VpnManager.Activate"); existing.Set(); }
+            catch (WaitHandleCannotBeOpenedException) { }
+            Shutdown(); return;
+        }
+        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VpnManager.Activate");
         var startupDirect = e.Args.Any(arg => string.Equals(arg, "--startup-direct", StringComparison.OrdinalIgnoreCase));
-        base.OnStartup(e); new MainWindow(startupDirect).Show();
+        base.OnStartup(e); new MainWindow(startupDirect).Show(); ListenForActivationRequests();
+    }
+    private void ListenForActivationRequests()
+    {
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                while (_activationEvent?.WaitOne() == true)
+                {
+                    if (_isExiting) return;
+                    Dispatcher.BeginInvoke(() => { if (Current.MainWindow is MainWindow window) window.ShowFromActivationRequest(); });
+                }
+            }
+            catch (ObjectDisposedException) { }
+        });
     }
     protected override void OnExit(ExitEventArgs e)
     {
+        _isExiting = true;
+        _activationEvent?.Set();
+        _activationEvent?.Dispose();
         if (_ownsMutex) _mutex?.ReleaseMutex();
         _mutex?.Dispose();
         base.OnExit(e);

@@ -22,6 +22,7 @@ public partial class MainWindow : Window
         _timer.Tick += async (_, _) => await RefreshStateAsync(); Loaded += async (_, _) => { await RefreshStateAsync(); _timer.Start(); if (_startupDirect) { Hide(); Append("开机启动：请求进入普通直连模式…"); await SwitchAsync(VpnMode.Direct); Hide(); } };
     }
     private void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); }
+    public void ShowFromActivationRequest() => ShowFromTray();
     private async Task<bool> RefreshStateAsync(bool forceExitRefresh = false)
     {
         if (_switching || _refreshing) return false;

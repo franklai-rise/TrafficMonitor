@@ -9,7 +9,7 @@
         <Button x:Name="ClashButton" Grid.Row="0" Grid.Column="0" Content="切换到 Clash" Height="38" Margin="0,0,6,6" Click="SwitchClash_Click"/>
         <Button x:Name="TiziGoButton" Grid.Row="0" Grid.Column="1" Content="切换到 TiziGo" Height="38" Margin="3,0,3,6" Click="SwitchTiziGo_Click"/>
         <Button x:Name="DirectButton" Grid.Row="0" Grid.Column="2" Content="关闭 VPN（直连）" Height="38" Margin="6,0,0,6" Click="Direct_Click"/>
-        <Button Grid.Row="1" Grid.Column="0" Content="刷新状态" Height="36" Margin="0,0,6,0" Click="Refresh_Click"/>
+        <Button x:Name="RefreshButton" Grid.Row="1" Grid.Column="0" Content="刷新状态" Height="36" Margin="0,0,6,0" Click="Refresh_Click"/>
         <Button Grid.Row="1" Grid.Column="1" Content="显示样式…" Height="36" Margin="3,0" Click="DisplayStyle_Click"/>
         <CheckBox x:Name="ExitIpEnabled" Grid.Row="1" Grid.Column="2" Content="刷新出口 IP 和地区" IsChecked="True" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="6,0,0,0" ToolTip="启用后每 60 秒按当前已选择的路径查询一次 ping0.cc；可随时关闭。"/>
       </Grid>

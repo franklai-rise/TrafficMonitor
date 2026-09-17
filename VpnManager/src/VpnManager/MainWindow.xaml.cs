@@ -21,25 +21,31 @@ public partial class MainWindow : Window
         _timer.Tick += async (_, _) => await RefreshStateAsync(); Loaded += async (_, _) => { await RefreshStateAsync(); _timer.Start(); };
     }
     private void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); }
-    private async Task RefreshStateAsync()
+    private async Task<bool> RefreshStateAsync(bool forceExitRefresh = false)
     {
-        if (_switching || _refreshing) return;
+        if (_switching || _refreshing) return false;
         _refreshing = true;
         try
         {
-            await RefreshExitIpIfEnabledAsync();
+            await RefreshExitIpIfEnabledAsync(forceExitRefresh);
             var seed = _collector.Collect(_exitIp, _exitCountry, _exitLocation);
             if (seed.Mode == VpnMode.Clash && DateTimeOffset.UtcNow - _lastNodeRefresh >= TimeSpan.FromSeconds(30)) { (_clashNode, _clashCountry) = await _clashResolver.TryResolveAsync(CancellationToken.None); _lastNodeRefresh = DateTimeOffset.UtcNow; }
             if (seed.Mode != VpnMode.Clash) { _clashNode = _clashCountry = null; _lastNodeRefresh = DateTimeOffset.MinValue; }
             var state = _collector.Collect(_exitIp, _exitCountry, _exitLocation, _clashNode, _clashCountry); var snapshot = _collector.ToSnapshot(state); _store.Write(snapshot);
             StatusText.Text = snapshot.DisplayText; StatusDetail.Text = snapshot.Tooltip; _tray.Text = snapshot.DisplayText.Length > 63 ? snapshot.DisplayText[..63] : snapshot.DisplayText;
+            return true;
         }
         finally { _refreshing = false; }
     }
     private async void SwitchClash_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Clash);
     private async void SwitchTiziGo_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.TiziGo);
     private async void Direct_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Direct);
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshStateAsync();
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshButton.IsEnabled = false; RefreshButton.Content = "正在刷新…"; Append("正在手动刷新状态与出口地区…");
+        try { if (await RefreshStateAsync(true)) Append($"状态已刷新：{DateTime.Now:HH:mm:ss}"); else Append("状态刷新正在进行，请稍候。"); }
+        finally { RefreshButton.Content = "刷新状态"; RefreshButton.IsEnabled = true; }
+    }
     private void DisplayStyle_Click(object sender, RoutedEventArgs e)
     {
         var settings = DisplaySettings.Read(_paths.StateDirectory);
@@ -52,9 +58,9 @@ public partial class MainWindow : Window
         panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "对齐" }); var alignment = new System.Windows.Controls.ComboBox { Margin = new Thickness(0, 4, 0, 16) }; alignment.Items.Add("左对齐"); alignment.Items.Add("居中"); alignment.Items.Add("右对齐"); alignment.SelectedIndex = settings.Alignment switch { "center" => 1, "right" => 2, _ => 0 }; panel.Children.Add(alignment);
         var actions = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right }; var cancel = new System.Windows.Controls.Button { Content = "取消", Width = 80, Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.Close(); var save = new System.Windows.Controls.Button { Content = "保存", Width = 80, IsDefault = true }; save.Click += (_, _) => { if (!int.TryParse(size.Text, out var value) || value is < 8 or > 28 || !System.Text.RegularExpressions.Regex.IsMatch(color.Text, "^#[0-9A-Fa-f]{6}$")) { System.Windows.MessageBox.Show(dialog, "字号需为 8 到 28，颜色格式为 #RRGGBB。", "VPN 状态显示样式", MessageBoxButton.OK, MessageBoxImage.Warning); return; } DisplaySettings.Write(_paths.StateDirectory, new(font.Text.Trim() is { Length: > 0 } name ? name : "Microsoft YaHei UI", value, color.Text.ToUpperInvariant(), alignment.SelectedIndex switch { 1 => "center", 2 => "right", _ => "left" })); Append("已保存 VPN 状态的独立显示样式；TrafficMonitor 将在下一次刷新应用。"); dialog.Close(); }; actions.Children.Add(cancel); actions.Children.Add(save); panel.Children.Add(actions); dialog.Content = panel; dialog.ShowDialog();
     }
-    private async Task RefreshExitIpIfEnabledAsync()
+    private async Task RefreshExitIpIfEnabledAsync(bool force = false)
     {
-        if (!ExitIpEnabled.IsChecked.GetValueOrDefault() || DateTimeOffset.UtcNow - _lastExitIpRefresh < TimeSpan.FromSeconds(60) || _switching) return;
+        if (!ExitIpEnabled.IsChecked.GetValueOrDefault() || (!force && DateTimeOffset.UtcNow - _lastExitIpRefresh < TimeSpan.FromSeconds(60)) || _switching) return;
         _lastExitIpRefresh = DateTimeOffset.UtcNow;
         var state = _collector.Collect();
         if (state.Mode is not (VpnMode.Clash or VpnMode.TiziGo)) return;

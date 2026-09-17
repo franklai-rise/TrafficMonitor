@@ -5,12 +5,13 @@ public sealed record VpnPaths(string ClashExe, string TiziGoExe, string ClashCon
 {
     public const int ClashPort = 7890;
     public const string TiziGoAdapter = "TiziGo";
+    private static string UserLocalAppData => Path.Combine(Environment.ExpandEnvironmentVariables("%USERPROFILE%"), "AppData", "Local");
     public static VpnPaths Default { get; } = new(
         @"E:\Program Files\Clash for Windows\Clash for Windows.exe",
         @"E:\Program Files\VelikSoft\TiziGo\TiziGo.exe",
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "clash", "config.yaml"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VelikSoft", "TiziGo", "selected-region-v1.txt"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VpnManager"));
+        Path.Combine(UserLocalAppData, "VelikSoft", "TiziGo", "selected-region-v1.txt"),
+        Path.Combine(UserLocalAppData, "VpnManager"));
 }
 public sealed record ObservedState(VpnMode Mode, bool ClashProcess, bool ClashPortListening, bool TiziGoProcess, bool TunAdapterUp, bool TunRoutesComplete, bool CodexRunning, bool ProxyMatchesClash, bool AnyUserProxy, string? TiziGoRegion, string? ClashNode, string? ClashCountry, string? ExitIp, string? ExitCountry, string? ExitLocation, DateTimeOffset ObservedAt, string? Warning);
 public sealed record StatusSnapshot(int SchemaVersion, string DisplayText, string Tooltip, string Mode, string Access, string Software, string Country, string CountrySource, string? ExitIp, DateTimeOffset ObservedAt, bool IsFresh, string? LastError)

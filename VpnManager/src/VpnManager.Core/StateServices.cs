@@ -11,15 +11,18 @@ public sealed class SnapshotStore
     public string Path => _path;
     public void Write(StatusSnapshot snapshot)
     {
-        var temporary = _path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot, _json));
-        File.Move(temporary, _path, true);
+        AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(snapshot, _json));
     }
     public StatusSnapshot? Read()
     {
-        try { return JsonSerializer.Deserialize<StatusSnapshot>(File.ReadAllText(_path), _json); }
+        try
+        {
+            using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonSerializer.Deserialize<StatusSnapshot>(stream, _json);
+        }
         catch (IOException) { return null; }
         catch (JsonException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
     }
 }
 
@@ -40,9 +43,14 @@ public sealed class StatusCollector
         var values = ProxyNames.Select(_system.GetUserEnvironment).ToArray();
         var proxyMatches = values.All(x => string.Equals(x, expected, StringComparison.OrdinalIgnoreCase));
         var anyProxy = values.Any(x => !string.IsNullOrWhiteSpace(x));
-        var mode = port && adapter ? VpnMode.BothActive : port ? VpnMode.Clash : adapter && complete ? VpnMode.TiziGo : !clashProcess && !tizi ? VpnMode.Direct : VpnMode.Unknown;
-        var region = File.Exists(_paths.TiziGoRegionFile) ? File.ReadAllText(_paths.TiziGoRegionFile).Trim().ToLowerInvariant() : null;
+        var ownedPort = !port || _system.IsPortOwnedBy(VpnPaths.ClashPort, _paths.ClashDirectory, VpnPaths.ClashCoreImageNames);
+        var mode = !ownedPort || (adapter && !complete) ? VpnMode.Unknown : port && adapter ? VpnMode.BothActive : port ? VpnMode.Clash : adapter && complete ? VpnMode.TiziGo : !clashProcess && !tizi ? VpnMode.Direct : VpnMode.Unknown;
+        string? region = null;
+        try { if (File.Exists(_paths.TiziGoRegionFile)) region = File.ReadAllText(_paths.TiziGoRegionFile).Trim().ToLowerInvariant(); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
         var warning = mode == VpnMode.BothActive ? "两个 VPN 同时活跃；出口结果不能归属到目标 VPN。" : adapter && !complete ? "TiziGo 网卡存在但 TUN 路由不完整。" : null;
+        if (!ownedPort) warning = "7890 端口不属于已核实的 Clash 内核，或无法核实其身份。";
         return new(mode, clashProcess, port, tizi, adapter, complete, _system.IsCodexRunning(), proxyMatches, anyProxy, region, clashNode, clashCountry, exitIp, exitCountry, exitLocation, DateTimeOffset.Now, warning);
     }
     public StatusSnapshot ToSnapshot(ObservedState s, string? error = null)
@@ -53,10 +61,14 @@ public sealed class StatusCollector
             _ => ("未知", "无可用 VPN 状态") };
         var access = s.Mode == VpnMode.Clash ? $"HTTP/SOCKS5 :{VpnPaths.ClashPort}" : s.Mode == VpnMode.TiziGo ? "TUN" : "未连接";
         var software = s.Mode == VpnMode.Clash ? "Clash" : s.Mode == VpnMode.TiziGo ? "TiziGo" : s.Mode == VpnMode.BothActive ? "冲突" : "VPN";
-        var text = s.Mode is VpnMode.Clash or VpnMode.TiziGo ? $"{country}\n{access} · {software}" : s.Mode == VpnMode.BothActive ? "VPN 状态冲突" : "VPN 未连接";
+        var text = s.Mode is VpnMode.Clash or VpnMode.TiziGo ? $"{country}\n{access} · {software}" : s.Mode == VpnMode.BothActive ? "VPN 状态冲突" : s.Mode == VpnMode.Direct ? "普通直连\nVPN 已关闭" : "VPN 状态未知";
+        if (s.Mode == VpnMode.Clash && s.ClashNode is "规则分流" or "直连规则")
+            text = $"{(country == "未知" ? s.ClashNode : country + " · " + s.ClashNode)}\n{access} · {software}";
         var exit = s.ExitIp is null ? "未刷新" : string.IsNullOrWhiteSpace(s.ExitLocation) ? s.ExitIp : $"{s.ExitIp}（{s.ExitLocation}）";
         var tip = $"{text}\n观察时间：{s.ObservedAt:yyyy-MM-dd HH:mm:ss}\n国家来源：{source}\n出口 IP：{exit}\n代理变量：{(s.ProxyMatchesClash ? "匹配 Clash" : s.AnyUserProxy ? "存在非预期值" : "未设置")}";
-        if (!string.IsNullOrWhiteSpace(s.Warning ?? error)) tip += $"\n提示：{s.Warning ?? error}";
+        if (!string.IsNullOrWhiteSpace(s.Warning)) tip += $"\n提示：{s.Warning}";
+        if (s.Mode == VpnMode.Clash && s.ClashNode is not null) tip += $"\nClash 选择：{s.ClashNode}（名称推断不代表全部请求的出口）";
+        if (!string.IsNullOrWhiteSpace(error) && error != s.Warning) tip += $"\n提示：{error}";
         return new(StatusSnapshot.CurrentSchema, text, tip, s.Mode.ToString(), access, software, country, source, s.ExitIp, s.ObservedAt, true, error ?? s.Warning);
     }
     private static string RegionName(string? code) => code?.ToLowerInvariant() switch { "us" => "美国", "jp" => "日本", "hk" => "香港", "de" => "德国", "nl" => "荷兰", _ => "未知" };

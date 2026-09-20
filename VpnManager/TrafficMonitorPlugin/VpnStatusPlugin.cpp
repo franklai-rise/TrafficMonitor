@@ -37,31 +37,90 @@ namespace
     }
     std::string ReadFile(const std::wstring& path)
     {
-        std::ifstream stream(std::filesystem::path(path), std::ios::binary); return { std::istreambuf_iterator<char>(stream), {} };
+        const auto file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return {};
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 65536) { CloseHandle(file); return {}; }
+        std::string value(static_cast<size_t>(size.QuadPart), '\0'); DWORD read{};
+        const auto ok = ::ReadFile(file, value.data(), static_cast<DWORD>(value.size()), &read, nullptr);
+        CloseHandle(file); if (!ok) return {}; value.resize(read); return value;
+    }
+    void AppendUtf8(std::string& out, unsigned int code)
+    {
+        if (code < 0x80) out += static_cast<char>(code);
+        else if (code < 0x800) { out += static_cast<char>(0xC0 | (code >> 6)); out += static_cast<char>(0x80 | (code & 63)); }
+        else if (code < 0x10000) { out += static_cast<char>(0xE0 | (code >> 12)); out += static_cast<char>(0x80 | ((code >> 6) & 63)); out += static_cast<char>(0x80 | (code & 63)); }
+        else { out += static_cast<char>(0xF0 | (code >> 18)); out += static_cast<char>(0x80 | ((code >> 12) & 63)); out += static_cast<char>(0x80 | ((code >> 6) & 63)); out += static_cast<char>(0x80 | (code & 63)); }
     }
     std::string JsonString(const std::string& json, const char* key)
     {
-        const std::regex expression(std::string("\\\"") + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\""); std::smatch match;
-        if (!std::regex_search(json, match, expression)) return "";
-        const auto encoded = match[1].str(); std::string result;
+        const auto property = std::string("\"") + key + "\"";
+        auto pos = json.find(property);
+        if (pos == std::string::npos) return {};
+        pos += property.size();
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) ++pos;
+        if (pos >= json.size() || json[pos++] != ':') return {};
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) ++pos;
+        if (pos >= json.size() || json[pos++] != '"') return {};
+        const auto start = pos;
+        bool escaped = false;
+        for (; pos < json.size(); ++pos) {
+            if (!escaped && json[pos] == '"') break;
+            if (!escaped && json[pos] == '\\') escaped = true;
+            else escaped = false;
+        }
+        if (pos == json.size()) return {};
+        const auto encoded = json.substr(start, pos - start); std::string result;
         for (size_t i = 0; i < encoded.size(); ++i)
         {
-            if (encoded[i] != '\\' || i + 1 >= encoded.size()) { result += encoded[i]; continue; }
-            const char escaped = encoded[++i];
-            if (escaped == 'n') { result += '\n'; continue; }
-            if (escaped == 'r') { result += '\r'; continue; }
-            if (escaped == 't') { result += '\t'; continue; }
-            if (escaped != 'u' || i + 4 >= encoded.size()) { result += escaped; continue; }
-            const auto hex = encoded.substr(i + 1, 4); unsigned int code = 0;
-            if (sscanf_s(hex.c_str(), "%x", &code) != 1) { result += "\\u"; continue; }
-            i += 4;
-            if (code < 0x80) result += static_cast<char>(code);
-            else if (code < 0x800) { result += static_cast<char>(0xC0 | (code >> 6)); result += static_cast<char>(0x80 | (code & 0x3F)); }
-            else { result += static_cast<char>(0xE0 | (code >> 12)); result += static_cast<char>(0x80 | ((code >> 6) & 0x3F)); result += static_cast<char>(0x80 | (code & 0x3F)); }
+            if (encoded[i] != '\\') { result += encoded[i]; continue; }
+            if (++i >= encoded.size()) return {};
+            const char c = encoded[i];
+            if (c == 'n') result += '\n';
+            else if (c == 'r') result += '\r';
+            else if (c == 't') result += '\t';
+            else if (c == 'b') result += '\b';
+            else if (c == 'f') result += '\f';
+            else if (c == '"' || c == '\\' || c == '/') result += c;
+            else if (c == 'u')
+            {
+                if (i + 4 >= encoded.size()) return {};
+                const auto hex = encoded.substr(i + 1, 4);
+                if (hex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return {};
+                unsigned int code = std::stoul(hex, nullptr, 16); i += 4;
+                if (code >= 0xD800 && code <= 0xDBFF)
+                {
+                    if (i + 6 >= encoded.size() || encoded.substr(i + 1, 2) != "\\u") return {};
+                    const auto lowHex = encoded.substr(i + 3, 4);
+                    if (lowHex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return {};
+                    const auto low = std::stoul(lowHex, nullptr, 16);
+                    if (low < 0xDC00 || low > 0xDFFF) return {};
+                    code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00); i += 6;
+                }
+                else if (code >= 0xDC00 && code <= 0xDFFF) return {};
+                AppendUtf8(result, code);
+            }
+            else return {};
         }
         return result;
     }
-    bool JsonBool(const std::string& json, const char* key)
+    bool RecentObservation(const std::string& iso)
+    {
+        // Manager writes ISO 8601 DateTimeOffset with Z or an explicit UTC offset.
+        const std::regex pattern(R"(^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$)");
+        std::smatch parts; if (!std::regex_match(iso, parts, pattern)) return false;
+        SYSTEMTIME st{}; st.wYear = static_cast<WORD>(std::stoi(parts[1])); st.wMonth = static_cast<WORD>(std::stoi(parts[2]));
+        st.wDay = static_cast<WORD>(std::stoi(parts[3])); st.wHour = static_cast<WORD>(std::stoi(parts[4]));
+        st.wMinute = static_cast<WORD>(std::stoi(parts[5])); st.wSecond = static_cast<WORD>(std::stoi(parts[6]));
+        FILETIME ft{}, now{}; if (!SystemTimeToFileTime(&st, &ft)) return false; GetSystemTimeAsFileTime(&now);
+        ULARGE_INTEGER thenTicks{}, nowTicks{}; thenTicks.LowPart = ft.dwLowDateTime; thenTicks.HighPart = ft.dwHighDateTime;
+        nowTicks.LowPart = now.dwLowDateTime; nowTicks.HighPart = now.dwHighDateTime;
+        const auto zone = parts[7].str(); long long offset = 0;
+        if (zone != "Z") offset = (std::stoll(zone.substr(1, 2)) * 60 + std::stoll(zone.substr(4, 2))) * 60 * (zone[0] == '+' ? 1 : -1);
+        const auto age = (static_cast<long long>(nowTicks.QuadPart) - static_cast<long long>(thenTicks.QuadPart)) / 10000000 + offset;
+        return age >= -5 && age <= 10;
+    }    bool JsonBool(const std::string& json, const char* key)
     {
         const std::regex expression(std::string("\\\"") + key + "\\\"\\s*:\\s*(true|false)"); std::smatch match;
         return std::regex_search(json, match, expression) && match[1].str() == "true";
@@ -70,6 +129,8 @@ namespace
 
 void VpnStatusItem::Refresh(bool force)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    try {
     const auto now = std::chrono::steady_clock::now();
     if (!force && now - m_last_snapshot_read < std::chrono::seconds(1)) return;
     m_last_snapshot_read = now;
@@ -81,14 +142,16 @@ void VpnStatusItem::Refresh(bool force)
         m_value = L"VPN 状态过期"; m_tooltip = L"VPN 管理器未在最近 10 秒更新状态。单击打开管理器。"; return;
     }
     const auto json = ReadFile(path);
+    if (!std::regex_search(json, std::regex("\"schemaVersion\"\\s*:\\s*1\\s*[,}]")) || !RecentObservation(JsonString(json, "observedAt"))) { m_value = L"VPN 状态过期"; m_tooltip = L"快照版本不支持或采集时间已过期。"; return; }
     const auto display = JsonString(json, "displayText"); const auto tooltip = JsonString(json, "tooltip");
     if (display.empty() || !JsonBool(json, "isFresh")) { m_value = L"VPN 状态过期"; m_tooltip = L"状态快照无效或已过期。"; return; }
     m_value = Utf8ToWide(display); m_tooltip = Utf8ToWide(tooltip);
+    } catch (...) { m_value = L"VPN 状态过期"; m_tooltip = L"无法读取状态快照，请打开管理器查看。"; }
 }
 const wchar_t* VpnStatusItem::GetItemName() const { return L"VPN 状态"; }
 const wchar_t* VpnStatusItem::GetItemId() const { return L"vpn-manager-status-v1"; }
 const wchar_t* VpnStatusItem::GetItemLableText() const { return L""; }
-const wchar_t* VpnStatusItem::GetItemValueText() const { return m_value.c_str(); }
+const wchar_t* VpnStatusItem::GetItemValueText() const { std::lock_guard<std::recursive_mutex> lock(m_mutex); thread_local std::wstring value; value = m_value; return value.c_str(); }
 const wchar_t* VpnStatusItem::GetItemValueSampleText() const { return L"美国 加利福尼亚州 洛杉矶\nHTTP/SOCKS5 :7890 · Clash"; }
 void VpnStatusItem::LoadDisplaySettings()
 {
@@ -97,12 +160,15 @@ void VpnStatusItem::LoadDisplaySettings()
     GetPrivateProfileStringW(L"display", L"color", L"#1E77CF", color, 16, path.c_str());
     GetPrivateProfileStringW(L"display", L"alignment", L"left", align, 16, path.c_str());
     m_settings.font_name = font; m_settings.font_size = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"display", L"font_size", 13, path.c_str())), 8, 28);
-    unsigned int red = 30, green = 119, blue = 207; if (swscanf_s(color, L"#%02x%02x%02x", &red, &green, &blue) == 3) m_settings.color = RGB(red, green, blue);
+    unsigned int red = 30, green = 119, blue = 207; m_settings.color = RGB(red, green, blue);
+    if (swscanf_s(color, L"#%02x%02x%02x", &red, &green, &blue) == 3) m_settings.color = RGB(red, green, blue);
     const std::wstring value = align; m_settings.alignment = value == L"center" ? IPluginDrawer::CENTER : value == L"right" ? IPluginDrawer::RIGHT : IPluginDrawer::LEFT;
 }
 int VpnStatusItem::GetItemWidthEx(void* hDC) const
 {
-    const auto dc = static_cast<HDC>(hDC); const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
+    const_cast<VpnStatusItem*>(this)->Refresh();
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    const auto dc = static_cast<HDC>(hDC); if (!dc) return 260; const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
     const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
     const auto previous = SelectObject(dc, font); SIZE size{}; int widest = 0; size_t start = 0;
     while (start <= m_value.size()) { const auto end = m_value.find(L'\n', start); const auto length = (end == std::wstring::npos ? m_value.size() : end) - start; GetTextExtentPoint32W(dc, m_value.c_str() + start, static_cast<int>(length), &size); widest = widest > size.cx ? widest : size.cx; if (end == std::wstring::npos) break; start = end + 1; }
@@ -110,29 +176,42 @@ int VpnStatusItem::GetItemWidthEx(void* hDC) const
 }
 void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
 {
-    // DataRequired is not guaranteed after TrafficMonitor starts before the manager.
-    // Re-read on redraw, throttled to once per second, so the initial stale label self-heals.
     Refresh();
-    const auto dc = static_cast<HDC>(hDC); const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
-    const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
-    const auto previous = SelectObject(dc, font); const auto old_color = SetTextColor(dc, m_settings.color); const auto old_mode = SetBkMode(dc, TRANSPARENT);
-    UINT format = DT_TOP | DT_WORDBREAK | DT_NOPREFIX | (m_settings.alignment == IPluginDrawer::CENTER ? DT_CENTER : m_settings.alignment == IPluginDrawer::RIGHT ? DT_RIGHT : DT_LEFT); RECT rect{ x + 6, y, x + w - 6, y + h }; DrawTextW(dc, m_value.c_str(), -1, &rect, format);
-    SetBkMode(dc, old_mode); SetTextColor(dc, old_color); SelectObject(dc, previous); DeleteObject(font);
-}
-int VpnStatusItem::OnMouseEvent(MouseEventType type, int, int, void*, int)
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    const auto dc = static_cast<HDC>(hDC); if (!dc || w <= 12 || h <= 0) return;
+    const auto split = m_value.find(L'\n');
+    const bool twoLines = split != std::wstring::npos;
+    const int rowHeight = twoLines ? h / 2 : h;
+    const int pixels = (std::min)(MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72), (std::max)(1, rowHeight - 1));
+    const auto font = CreateFontW(-pixels, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
+    const int saved = SaveDC(dc);
+    IntersectClipRect(dc, x, y, x + w, y + h);
+    SelectObject(dc, font); SetTextColor(dc, m_settings.color); SetBkMode(dc, TRANSPARENT);
+    const UINT format = DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX |
+        (m_settings.alignment == IPluginDrawer::CENTER ? DT_CENTER : m_settings.alignment == IPluginDrawer::RIGHT ? DT_RIGHT : DT_LEFT);
+    RECT first{ x + 6, y, x + w - 6, y + rowHeight };
+    const auto line1 = twoLines ? m_value.substr(0, split) : m_value;
+    DrawTextW(dc, line1.c_str(), -1, &first, format);
+    if (twoLines) {
+        auto line2 = m_value.substr(split + 1); std::replace(line2.begin(), line2.end(), L'\n', L' ');
+        RECT second{ x + 6, y + rowHeight, x + w - 6, y + h }; DrawTextW(dc, line2.c_str(), -1, &second, format);
+    }
+    RestoreDC(dc, saved); DeleteObject(font);
+}int VpnStatusItem::OnMouseEvent(MouseEventType type, int, int, void*, int)
 {
     if (type != MT_LCLICKED) return 0;
     const std::wstring app = UserLocalAppData() + L"\\VpnManager\\VpnManager.exe";
-    if (std::filesystem::exists(app)) ShellExecuteW(nullptr, L"open", app.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    std::error_code error;
+    if (std::filesystem::exists(app, error)) ShellExecuteW(nullptr, L"open", app.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return 1;
 }
 
 VpnStatusPlugin& VpnStatusPlugin::Instance() { static VpnStatusPlugin instance; return instance; }
 IPluginItem* VpnStatusPlugin::GetItem(int index) { return index == 0 ? &m_item : nullptr; }
 void VpnStatusPlugin::DataRequired() { m_item.Refresh(); }
-const wchar_t* VpnStatusPlugin::GetTooltipInfo() { return m_item.Tooltip().c_str(); }
+const wchar_t* VpnStatusPlugin::GetTooltipInfo() { thread_local std::wstring tooltip; tooltip = m_item.Tooltip(); return tooltip.c_str(); }
 const wchar_t* VpnStatusPlugin::GetInfo(PluginInfoIndex index)
 {
-    switch (index) { case TMI_NAME: return L"VPN 状态"; case TMI_DESCRIPTION: return L"读取 VPN 管理器状态快照并显示在任务栏。"; case TMI_AUTHOR: return L"Local"; case TMI_VERSION: return L"1.0"; case TMI_URL: return L""; default: return L""; }
+    switch (index) { case TMI_NAME: return L"VPN 状态"; case TMI_DESCRIPTION: return L"读取 VPN 管理器状态快照并显示在任务栏。"; case TMI_AUTHOR: return L"Local"; case TMI_VERSION: return L"1.1.0"; case TMI_URL: return L""; default: return L""; }
 }
 extern "C" __declspec(dllexport) ITMPlugin* TMPluginGetInstance() { return &VpnStatusPlugin::Instance(); }

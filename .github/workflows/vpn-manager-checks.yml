@@ -1,0 +1,28 @@
+name: VPN Manager offline checks
+on:
+  push:
+    paths: ['VpnManager/**', 'include/PluginInterface.h', '.github/workflows/vpn-manager-checks.yml']
+  pull_request:
+    paths: ['VpnManager/**', 'include/PluginInterface.h', '.github/workflows/vpn-manager-checks.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build manager
+        run: dotnet build VpnManager/VpnManager.sln -c Release
+      - name: Test simulated switching
+        run: dotnet run --project VpnManager/tests/VpnManager.Core.Tests -c Release --no-build
+      - name: Build plugin
+        run: msbuild VpnManager/TrafficMonitorPlugin/VpnStatusPlugin.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
+      - name: Build native fixture tests
+        run: msbuild VpnManager/tests/VpnStatusPlugin.Tests/VpnStatusPlugin.Tests.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /v:minimal
+      - name: Test plugin snapshots and rendering
+        run: .\VpnManager\artifacts\plugin-tests\VpnStatusPlugin.Tests.exe

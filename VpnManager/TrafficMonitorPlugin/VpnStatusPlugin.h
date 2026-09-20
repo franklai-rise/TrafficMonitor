@@ -2,6 +2,7 @@
 #include "PluginInterface.h"
 #include <chrono>
 #include <string>
+#include <mutex>
 
 struct VpnDisplaySettings
 {
@@ -26,8 +27,9 @@ public:
     int IsDoubleLineExclusive() const override { return 1; }
     int OnMouseEvent(MouseEventType type, int x, int y, void* hWnd, int flag) override;
     void Refresh(bool force = false);
-    const std::wstring& Tooltip() const { return m_tooltip; }
+    std::wstring Tooltip() const { std::lock_guard<std::recursive_mutex> lock(m_mutex); return m_tooltip; }
 private:
+    mutable std::recursive_mutex m_mutex;
     std::wstring m_value{ L"VPN 状态过期" };
     std::wstring m_tooltip{ L"VPN 管理器尚未写入状态快照。" };
     VpnDisplaySettings m_settings;

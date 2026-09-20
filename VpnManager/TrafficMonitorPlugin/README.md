@@ -1,7 +1,13 @@
 # TrafficMonitor VPN 状态插件
 
-该插件只读取 `%LOCALAPPDATA%\VpnManager\vpn-status.json`。它不读取 Clash 密钥、不调用 VPN 控制接口，也不切换或启动任何 VPN。
+x64 C++ 插件，使用仓库 include/PluginInterface.h。仅读取管理器快照和独立样式，不访问网络或 VPN 控制接口。
 
-管理器持续运行时，插件显示 `国家 · 接入方式 · 软件`；快照超过 10 秒未更新时显示“VPN 状态过期”。单击状态项会打开已部署的管理器。
+- 两行绘制并按字体测宽；高度不足时缩小字号，长行截断。
+- 超过 10 秒未采集、快照缺失或版本不支持时显示“VPN 状态过期”。
+- 单击打开管理器。显示样式在管理器“显示样式…”中保存。
+- TrafficMonitor 可先于管理器启动；管理器写入状态后自动恢复显示。
+- 不修改其他监控项目的字体、布局和配置。
 
-部署由项目根目录的 `Install-Local.ps1` 处理：先备份 TrafficMonitor 配置，再复制 DLL；不重启 TrafficMonitor，也不修改现有显示项目。请在 TrafficMonitor 退出后执行部署，再手动在“更多功能 → 插件管理”启用“VPN 状态”。
+构建、部署及离线测试见上级 README。
+
+中文详情采用逐字符解析，避免长文本触发 MSVC 正则表达式栈限制而误报状态过期。

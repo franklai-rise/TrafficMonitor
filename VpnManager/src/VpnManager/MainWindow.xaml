@@ -1,8 +1,8 @@
 <Window x:Class="VpnManager.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="VPN 管理器" Icon="Assets/VpnManager.ico" Width="760" Height="650" MinWidth="640" MinHeight="560" WindowStartupLocation="CenterScreen">
   <Grid Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel><TextBlock Text="VPN 管理器" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="切换前请退出 Codex。不会自动重启 Codex 或改动 Windows 系统代理。" Margin="0,6,0,16" Foreground="DimGray"/></StackPanel>
-    <Grid Grid.Row="1"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-      <Border Padding="16" Background="#F3F7FC" CornerRadius="8"><StackPanel><TextBlock Text="当前状态" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" FontSize="20" Margin="0,6,0,0"/><TextBlock x:Name="StatusDetail" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="DimGray"/></StackPanel></Border>
+    <StackPanel><TextBlock Text="VPN 管理器" FontSize="28" FontWeight="SemiBold"/><TextBlock TextWrapping="Wrap" Text="切换前请退出 Codex。不会自动重启 Codex 或改动 Windows 系统代理。" Margin="0,6,0,16" Foreground="DimGray"/></StackPanel>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <Border Padding="16" Background="#F3F7FC" CornerRadius="8"><StackPanel><TextBlock Text="当前状态" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" TextWrapping="Wrap" FontSize="20" Margin="0,6,0,0"/><TextBlock x:Name="StatusDetail" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="DimGray"/></StackPanel></Border>
       <Grid Grid.Row="1" Margin="0,18,0,12">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -17,7 +17,7 @@
         <StackPanel><TextBlock Text="最近操作" FontWeight="SemiBold" Foreground="#9F1239"/><TextBlock x:Name="ActionSummaryText" Text="尚未请求切换。当前网络状态保持不变。" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#374151"/></StackPanel>
       </Border>
       <Expander Grid.Row="3" Header="操作记录" Foreground="DimGray" IsExpanded="False"><TextBox x:Name="LogText" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="#161B22" Foreground="#D7E3F4" FontFamily="Consolas" Padding="12" MinHeight="88" MaxHeight="132"/></Expander>
-    </Grid>
-    <TextBlock Grid.Row="2" Text="基础网络可达不等于 Codex 已验证；真实切换验收请在空闲时段进行。" Foreground="DimGray" Margin="0,14,0,0"/>
+    </Grid></ScrollViewer>
+    <TextBlock Grid.Row="2" TextWrapping="Wrap" Text="基础网络可达不等于 Codex 已验证；真实切换验收请在空闲时段进行。" Foreground="DimGray" Margin="0,14,0,0"/>
   </Grid>
 </Window>

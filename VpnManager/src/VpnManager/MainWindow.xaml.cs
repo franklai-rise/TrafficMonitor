@@ -127,7 +127,7 @@ public partial class MainWindow : Window
     }
     private Task RefreshDetailsAsync(bool force)
     {
-        if (_exiting || _switching || _observedMode is not (VpnMode.Clash or VpnMode.TiziGo)) return Task.CompletedTask;
+        if (_exiting || _switching || _observedMode is not (VpnMode.Clash or VpnMode.TiziGo or VpnMode.Direct)) return Task.CompletedTask;
         if (_detailsTask is { IsCompleted: false }) return _detailsTask;
         if (!force && DateTimeOffset.Now - _lastDetailsAttempt < TimeSpan.FromSeconds(60)) return Task.CompletedTask;
         _lastDetailsAttempt = DateTimeOffset.Now;

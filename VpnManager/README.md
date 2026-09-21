@@ -1,4 +1,4 @@
-# VPN 管理器 1.1.0
+# VPN 管理器 1.1.1
 
 独立 WPF 管理器和 TrafficMonitor x64 状态插件。保留 DeepSeek 的 Clash 路径发现、管理员清单和操作日志，修正切换恢复、并发、刷新和部署检查。
 
@@ -25,6 +25,8 @@
 安装请求管理员权限，通过临时计划任务建立独立进程。MSIX 子进程即使没有包身份，仍可能继承文件重定向；显式 USERPROFILE 路径或 Resolve-Path 不足以证明真实安装位置。本版核查文件句柄的实际路径及文件哈希，结果写入 artifacts/install-result.json。
 
 安装目录为 %USERPROFILE%\AppData\Local\VpnManager，快捷方式放在 Windows 配置的桌面。更新保留显示样式和联网刷新开关。普通重启不传 --startup-direct，保持当前网络。
+
+普通直连状态也会按联网刷新设置访问 ping0.cc，显示当前出口地区、IP 和“普通直连”。它只观察当前路径，不会为了刷新而启动或切换 VPN。
 
 -InstallStartup 注册当前用户登录、最高权限的 VpnManager-Logon 和 TrafficMonitor-Logon 任务。管理器的 --startup-direct 仅在下次登录的新进程执行一次，仍受 Codex 运行检查保护。重复打开、重新显示隐藏窗口和安装后重启都不执行直连。不要在当前 VPN 会话中手动运行登录任务。安装成功后移除对应旧 HKCU Run 项，避免管理员清单造成自启动失败或重复启动。
 
@@ -56,7 +58,7 @@ msbuild .\tests\VpnStatusPlugin.Tests\VpnStatusPlugin.Tests.vcxproj /p:Configura
 
 原生项目默认 v142，VS 2022 可传 /p:PlatformToolset=v143。仓库自动使用顶层 include/PluginInterface.h；独立目录可传 /p:TrafficMonitorIncludePath=路径。
 
-30 项核心离线检查使用模拟进程、路由、HTTP 和环境变量，不控制真实 VPN。原生测试使用临时目录，覆盖 3,000 字符中文详情、字符串转义、中文/emoji、缺失/过期/版本不符、两行裁剪和并发读取。
+31 项核心离线检查使用模拟进程、路由、HTTP 和环境变量，不控制真实 VPN。原生测试使用临时目录，覆盖 3,000 字符中文详情、字符串转义、中文/emoji、缺失/过期/版本不符、两行裁剪和并发读取。
 
 日志在安装目录 logs/operations.log，超过 1 MB 轮转。状态快照使用唯一临时文件、串行写入和原子替换；插件共享读取允许替换，防止偶发写入失败。控制接口令牌不写日志，也不发到非回环地址。
 

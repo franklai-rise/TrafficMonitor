@@ -58,10 +58,11 @@ public sealed class StatusCollector
         var (country, source) = s.Mode switch {
             VpnMode.TiziGo => (s.ExitLocation ?? (RegionName(s.TiziGoRegion) is not "未知" ? RegionName(s.TiziGoRegion) : s.ExitCountry ?? "未知"), s.ExitLocation is not null ? "ping0.cc 出口 IP 地理信息" : RegionName(s.TiziGoRegion) is not "未知" ? "TiziGo 当前区域" : s.ExitCountry is null ? "未读取区域" : "ping0.cc 出口 IP 地理信息"),
             VpnMode.Clash => (s.ExitLocation ?? s.ClashCountry ?? s.ExitCountry ?? "未知", s.ExitLocation is not null ? "ping0.cc 出口 IP 地理信息" : s.ClashCountry is not null ? "Clash 节点名称" : s.ExitCountry is null ? "未读取节点" : "ping0.cc 出口 IP 地理信息"),
+            VpnMode.Direct => (s.ExitLocation ?? s.ExitCountry ?? "普通直连", s.ExitLocation is not null || s.ExitCountry is not null ? "ping0.cc 直连出口 IP 地理信息" : "直连出口尚未刷新"),
             _ => ("未知", "无可用 VPN 状态") };
-        var access = s.Mode == VpnMode.Clash ? $"HTTP/SOCKS5 :{VpnPaths.ClashPort}" : s.Mode == VpnMode.TiziGo ? "TUN" : "未连接";
-        var software = s.Mode == VpnMode.Clash ? "Clash" : s.Mode == VpnMode.TiziGo ? "TiziGo" : s.Mode == VpnMode.BothActive ? "冲突" : "VPN";
-        var text = s.Mode is VpnMode.Clash or VpnMode.TiziGo ? $"{country}\n{access} · {software}" : s.Mode == VpnMode.BothActive ? "VPN 状态冲突" : s.Mode == VpnMode.Direct ? "普通直连\nVPN 已关闭" : "VPN 状态未知";
+        var access = s.Mode == VpnMode.Clash ? $"HTTP/SOCKS5 :{VpnPaths.ClashPort}" : s.Mode == VpnMode.TiziGo ? "TUN" : s.Mode == VpnMode.Direct ? s.ExitIp ?? "公网 IP 未刷新" : "未连接";
+        var software = s.Mode == VpnMode.Clash ? "Clash" : s.Mode == VpnMode.TiziGo ? "TiziGo" : s.Mode == VpnMode.Direct ? "普通直连" : s.Mode == VpnMode.BothActive ? "冲突" : "VPN";
+        var text = s.Mode is VpnMode.Clash or VpnMode.TiziGo ? $"{country}\n{access} · {software}" : s.Mode == VpnMode.BothActive ? "VPN 状态冲突" : s.Mode == VpnMode.Direct ? $"{country}\n{s.ExitIp ?? "公网 IP 未刷新"} · 普通直连" : "VPN 状态未知";
         if (s.Mode == VpnMode.Clash && s.ClashNode is "规则分流" or "直连规则")
             text = $"{(country == "未知" ? s.ClashNode : country + " · " + s.ClashNode)}\n{access} · {software}";
         var exit = s.ExitIp is null ? "未刷新" : string.IsNullOrWhiteSpace(s.ExitLocation) ? s.ExitIp : $"{s.ExitIp}（{s.ExitLocation}）";

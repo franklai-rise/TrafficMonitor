@@ -1,5 +1,7 @@
 namespace VpnManager.Core;
 
+using Microsoft.Win32;
+
 public enum VpnMode { Unknown, Direct, Clash, TiziGo, BothActive }
 public sealed record VpnPaths(string ClashExe, string TiziGoExe, string ClashConfig, string TiziGoRegionFile, string StateDirectory)
 {
@@ -16,6 +18,13 @@ public sealed record VpnPaths(string ClashExe, string TiziGoExe, string ClashCon
 
     /// TiziGo 的 GUI 与内核进程名。内核 sing-box 位于 <安装目录>\Core\ 下。
     public static readonly string[] TiziGoImageNames = ["TiziGo", "sing-box"];
+
+    public static readonly string[] TiziGoInstallCandidates =
+    [
+        @"E:\Programs\TiziGo\TiziGo.exe",
+        @"E:\Program Files\VelikSoft\TiziGo\TiziGo.exe",
+        @"C:\Program Files\VelikSoft\TiziGo\TiziGo.exe"
+    ];
 
     /// Clash 候选安装位置（自动探测用，按优先级排列）。
     public static readonly string[] ClashInstallCandidates =
@@ -37,11 +46,11 @@ public sealed record VpnPaths(string ClashExe, string TiziGoExe, string ClashCon
     /// TiziGo GUI 所在的安装目录，同样用于"已核实路径"校验。
     public string TiziGoDirectory => Path.GetDirectoryName(TiziGoExe) ?? string.Empty;
 
-    public static VpnPaths Default { get; } = Create(ResolveClashExe());
+    public static VpnPaths Default { get; } = Create(ResolveClashExe(), ResolveTiziGoExe());
 
-    public static VpnPaths Create(string clashExe) => new(
+    public static VpnPaths Create(string clashExe, string? tiziGoExe = null) => new(
         clashExe,
-        @"E:\Program Files\VelikSoft\TiziGo\TiziGo.exe",
+        tiziGoExe ?? ResolveTiziGoExe(),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "clash", "config.yaml"),
         Path.Combine(UserLocalAppData, "VelikSoft", "TiziGo", "selected-region-v1.txt"),
         Path.Combine(UserLocalAppData, "VpnManager"));
@@ -75,6 +84,36 @@ public sealed record VpnPaths(string ClashExe, string TiziGoExe, string ClashCon
         foreach (var candidate in ClashInstallCandidates)
             if (File.Exists(candidate)) return candidate;
         return ClashInstallCandidates[0];
+    }
+
+    public static string ResolveTiziGoExe()
+    {
+        var running = TryGetRunningImagePath("TiziGo");
+        if (running is not null) return running;
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            try
+            {
+                using var root = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var uninstall = root.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall");
+                if (uninstall is null) continue;
+                foreach (var name in uninstall.GetSubKeyNames())
+                {
+                    using var app = uninstall.OpenSubKey(name);
+                    if (app is null || !(app.GetValue("DisplayName") as string ?? "").StartsWith("TiziGo", StringComparison.OrdinalIgnoreCase)) continue;
+                    var directory = app.GetValue("InstallLocation") as string;
+                    if (!string.IsNullOrWhiteSpace(directory))
+                    {
+                        var executable = Path.Combine(directory, "TiziGo.exe");
+                        if (File.Exists(executable)) return executable;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+        }
+        foreach (var candidate in TiziGoInstallCandidates)
+            if (File.Exists(candidate)) return candidate;
+        return TiziGoInstallCandidates[0];
     }
 
     private static string? TryGetRunningImagePath(string imageName)

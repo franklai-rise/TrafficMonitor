@@ -32,7 +32,7 @@ int main(int argc, char** argv)
                 "\",\"tooltip\":\"提示含有\\\"引号\\\"\",\"isFresh\":true,\"observedAt\":\"" + (date.empty() ? stamp : date) + "\"}";
             std::ofstream out(std::filesystem::path(StatePath()), std::ios::binary); out << json;
         };
-        for (const auto& text : { "美国 加利福尼亚州 洛杉矶\\nHTTP/SOCKS5 :7890 · Clash", "日本\\nTUN · TiziGo", "VPN 状态冲突", "普通直连\\nVPN 已关闭", "未知\\nTUN · TiziGo" }) {
+        for (const auto& text : { "美国 加利福尼亚州 洛杉矶\\nHTTP/SOCKS5 :7890 · Clash", "日本\\nTUN · TiziGo", "VPN 状态冲突", "中国 广东 深圳\\n203.0.113.8 · 普通直连", "未知\\nTUN · TiziGo" }) {
             fixture(text); item.Refresh(true); Check(std::wstring(item.GetItemValueText()) != L"VPN 状态过期");
             Check(item.Tooltip().find(L"\"引号\"") != std::wstring::npos);
         }

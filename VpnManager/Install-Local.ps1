@@ -59,7 +59,7 @@ $stoppedManager = $false
 $stoppedTraffic = $false
 $success = $false
 $installMutex=$null; $ownsInstallMutex=$false
-$result = [ordered]@{success=$false; version='1.1.0'; backup=$backup; networkChanged=$false}
+$result = [ordered]@{success=$false; version='1.1.1'; backup=$backup; networkChanged=$false}
 try {
     $installMutex=New-Object Threading.Mutex($false,'Local\VpnManager.Installation')
     try {$ownsInstallMutex=$installMutex.WaitOne(0)} catch [Threading.AbandonedMutexException] {$ownsInstallMutex=$true}
@@ -180,10 +180,22 @@ public static class InstallNative {
     $shortcut=$shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath=$exe;$shortcut.Arguments='';$shortcut.WorkingDirectory=$state
     $shortcut.IconLocation=(Join-Path $state 'VpnManager-loop-v1.ico')+',0'
-    $shortcut.Description='VPN 管理器 1.1.0（普通打开仅刷新状态）';$shortcut.Save()
+    $shortcut.Description='VPN 管理器 1.1.1（普通打开仅刷新状态）';$shortcut.Save()
     $result.shortcut=$shortcutPath
     Trace-Step 'Files installed, configuring startup'
     if($InstallStartup) {
+        # TrafficMonitor can create its own per-user scheduled task. Keeping it beside
+        # TrafficMonitor-Logon starts two instances at sign-in and triggers the
+        # "already running" dialog, so preserve it for rollback and remove it.
+        $nativeTrafficTaskName='Autorun for '+$env:USERNAME
+        $nativeTrafficTaskPath='\TrafficMonitor\'
+        $nativeTrafficTask=Get-ScheduledTask -TaskPath $nativeTrafficTaskPath -TaskName $nativeTrafficTaskName -ErrorAction SilentlyContinue
+        if($nativeTrafficTask){
+            $nativeXml=Export-ScheduledTask -TaskPath $nativeTrafficTaskPath -TaskName $nativeTrafficTaskName
+            $nativeXml | Set-Content -LiteralPath (Join-Path $backup 'TrafficMonitor-native-autorun.xml') -Encoding Unicode
+            $taskChanges.Add([pscustomobject]@{name=$nativeTrafficTaskName;path=$nativeTrafficTaskPath;xml=$nativeXml})
+            Unregister-ScheduledTask -TaskPath $nativeTrafficTaskPath -TaskName $nativeTrafficTaskName -Confirm:$false
+        }
         $principal=New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive -RunLevel Highest
         $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
         $trigger=New-ScheduledTaskTrigger -AtLogOn -User $identity.Name
@@ -193,7 +205,7 @@ public static class InstallNative {
             $action=New-ScheduledTaskAction -Execute $entry[1] -WorkingDirectory (Split-Path -Parent $entry[1])
             if($entry[2]){$action.Arguments=$entry[2]}
             $oldXml=if($existing){Export-ScheduledTask -TaskName $entry[0]}else{$null}
-            $taskChanges.Add([pscustomobject]@{name=$entry[0];xml=$oldXml})
+            $taskChanges.Add([pscustomobject]@{name=$entry[0];path='\';xml=$oldXml})
             Register-ScheduledTask -TaskName $entry[0] -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
         }
         $run='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -223,7 +235,7 @@ public static class InstallNative {
         catch {$rollbackErrors += $_.Exception.Message}
     }
     foreach($change in $taskChanges) {
-        try {if($change.xml){Register-ScheduledTask -TaskName $change.name -Xml $change.xml -Force | Out-Null}else{Unregister-ScheduledTask -TaskName $change.name -Confirm:$false}}
+        try {if($change.xml){Register-ScheduledTask -TaskPath $change.path -TaskName $change.name -Xml $change.xml -Force | Out-Null}else{Unregister-ScheduledTask -TaskPath $change.path -TaskName $change.name -Confirm:$false}}
         catch {$rollbackErrors += $_.Exception.Message}
     }
     foreach($change in $runChanges) {

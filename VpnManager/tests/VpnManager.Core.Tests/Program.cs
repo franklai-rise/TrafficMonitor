@@ -60,6 +60,9 @@ Check(!(await missingSetup.s.SwitchAsync(VpnMode.Clash,default)).Success&&missin
 
 var format=Setup(FakeSystem.Tizi()); File.WriteAllText(format.p.TiziGoRegionFile,"jp");
 Check(format.c.ToSnapshot(format.c.Collect()).DisplayText=="日本\nTUN · TiziGo");passed++;Console.WriteLine("PASS Two-line formatting");
+var directState=Setup(new()).c.Collect(exitIp:"203.0.113.8",exitCountry:"中国",exitLocation:"中国 上海市");
+var directSnapshot=Setup(new()).c.ToSnapshot(directState);
+Check(directSnapshot.DisplayText=="中国 上海市\n203.0.113.8 · 普通直连"&&directSnapshot.CountrySource.Contains("ping0.cc"));passed++;Console.WriteLine("PASS Direct IP formatting");
 var snapshot=Setup(new());var store=new SnapshotStore(snapshot.p.StateDirectory);
 store.Write(snapshot.c.ToSnapshot(snapshot.c.Collect()));
 await Task.WhenAll(Enumerable.Range(0,8).Select(n=>Task.Run(()=>{for(var i=0;i<20;i++){store.Write(snapshot.c.ToSnapshot(snapshot.c.Collect()));Check(store.Read()!=null);}})));

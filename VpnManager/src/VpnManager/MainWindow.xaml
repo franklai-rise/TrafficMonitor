@@ -63,6 +63,6 @@
     </Border>
    </Grid>
   </Border>
-  <TextBlock Grid.Row="3" TextWrapping="Wrap" Text="切换前请退出 Codex。基础网络可达不等于 Codex 已验证。" Foreground="#64748B" FontSize="11" Margin="2,12,0,0"/>
+  <TextBlock Grid.Row="3" TextWrapping="Wrap" Text="Codex 未退出时，可确认由管理器退出后切换。基础网络可达不等于 Codex 已验证。" Foreground="#64748B" FontSize="11" Margin="2,12,0,0"/>
  </Grid>
 </Window>

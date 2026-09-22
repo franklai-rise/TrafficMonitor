@@ -15,6 +15,7 @@ async Task Run(string name, FakeSystem f, VpnMode target, Action<SwitchResult,Fa
     var r = await Setup(f).s.SwitchAsync(target,default); check(r,f); Console.WriteLine("PASS "+name); passed++;
 }
 try {
+passed += await CodexExitTests.RunAsync(root);
 await Run("Codex preflight",new(){Codex=true},VpnMode.Clash,(r,f)=>Check(!r.Success&&f.Mutations==0));
 await Run("Foreign port",new(){ClashPort=true,OwnsPort=false},VpnMode.Direct,(r,f)=>Check(!r.Success&&f.Mutations==0));
 var machine=FakeSystem.Clash(); machine.Machine["HTTPS_PROXY"]="foreign";

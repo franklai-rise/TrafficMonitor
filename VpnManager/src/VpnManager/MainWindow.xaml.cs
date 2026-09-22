@@ -14,12 +14,14 @@ public partial class MainWindow : Window
     private readonly StatusCollector _collector;
     private readonly SnapshotStore _store;
     private readonly SwitchService _switcher;
+    private readonly CodexExitService _codexExit = new(new WindowsCodexProcesses());
     private readonly ClashControllerResolver _clashResolver;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly Forms.NotifyIcon _tray;
     private readonly bool _startupDirect;
     private bool _switching, _initialized, _exiting;
+    private bool _waitingForCodex;
     private Task? _detailsTask;
     private Task? _progressTask;
     private CancellationTokenSource? _detailsCancellation;
@@ -57,13 +59,16 @@ public partial class MainWindow : Window
         if (_initialized) return;
         _initialized = true;
         _timer.Start();
-        if (_startupDirect) { Hide(); await SwitchAsync(VpnMode.Direct); }
+        if (_startupDirect) { Hide(); await SwitchAsync(VpnMode.Direct, interactive: false); }
         else await RefreshStateAsync();
     }
     private Task PublishSwitchProgressAsync()
     {
         if (_progressTask is { IsCompleted: false }) return _progressTask;
-        var snapshot = new StatusSnapshot(StatusSnapshot.CurrentSchema, "VPN 正在切换\n请等待完成", "管理器正在切换或恢复 VPN，出口探测已暂停。结果请查看管理器。", "Switching", "", "VPN", "未知", "操作进度", null, DateTimeOffset.Now, true, null);
+        var snapshot = new StatusSnapshot(StatusSnapshot.CurrentSchema,
+            _waitingForCodex ? "等待 Codex 退出\n当前连接保持不变" : "VPN 正在切换\n请等待完成",
+            _waitingForCodex ? "正在确认或等待 Codex 退出，尚未切换网络。" : "管理器正在切换或恢复 VPN，出口探测已暂停。结果请查看管理器。",
+            _waitingForCodex ? "WaitingForCodex" : "Switching", "", "VPN", "未知", "操作进度", null, DateTimeOffset.Now, true, null);
         _progressTask = Task.Run(() => { try { _store.Write(snapshot); } catch (Exception ex) { OperationLog.Write($"切换进度写入失败：{ex.GetType().Name}"); } });
         return _progressTask;
     }
@@ -190,10 +195,10 @@ public partial class MainWindow : Window
         var actions = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right }; var cancel = new System.Windows.Controls.Button { Content = "取消", Width = 80, Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.Close(); var save = new System.Windows.Controls.Button { Content = "保存", Width = 80, IsDefault = true }; save.Click += (_, _) => { if (!int.TryParse(size.Text, out var value) || value is < 8 or > 28 || !System.Text.RegularExpressions.Regex.IsMatch(color.Text, "^#[0-9A-Fa-f]{6}$")) { System.Windows.MessageBox.Show(dialog, "字号需为 8 到 28，颜色格式为 #RRGGBB。", "VPN 状态显示样式", MessageBoxButton.OK, MessageBoxImage.Warning); return; } try { DisplaySettings.Write(_paths.StateDirectory, new(font.Text.Trim() is { Length: > 0 } name ? name : "Microsoft YaHei UI", value, color.Text.ToUpperInvariant(), alignment.SelectedIndex switch { 1 => "center", 2 => "right", _ => "left" })); Append("已保存 VPN 状态的独立显示样式；TrafficMonitor 将在下一次刷新应用。"); dialog.Close(); } catch (Exception ex) { System.Windows.MessageBox.Show(dialog, $"保存失败：{ex.Message}", "VPN 状态显示样式"); } }; actions.Children.Add(cancel); actions.Children.Add(save); panel.Children.Add(actions); dialog.Content = panel; dialog.ShowDialog();
     }
 
-    private async Task SwitchAsync(VpnMode mode)
+    private async Task SwitchAsync(VpnMode mode, bool interactive = true)
     {
         if (_switching || _exiting) return;
-        _switching = true; _detailsCancellation?.Cancel();
+        _switching = true; _waitingForCodex = true; _detailsCancellation?.Cancel();
         ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = RefreshButton.IsEnabled = false;
         var label = mode == VpnMode.Direct ? "普通直连" : mode.ToString();
         var requestedAt = DateTime.Now;
@@ -203,6 +208,16 @@ public partial class MainWindow : Window
         try
         {
             if (_detailsTask is not null) await _detailsTask;
+            var exit = await _codexExit.PrepareAsync(interactive,
+                () => Task.FromResult(new CodexExitDialog(label) { Owner = this }.ShowDialog() == true),
+                message => { Append(message); SetActionSummary(message, "#1D4ED8"); }, CancellationToken.None);
+            if (!exit.Ready)
+            {
+                Append(exit.Summary); SetActionSummary(exit.Summary, "#9A6700");
+                return;
+            }
+            _waitingForCodex = false;
+            Append(exit.Summary);
             ClearPathDetails();
             var result = await Task.Run(() => _switcher.SwitchAsync(mode, CancellationToken.None));
             _lastError = result.Success ? null : result.Summary;
@@ -213,7 +228,7 @@ public partial class MainWindow : Window
         finally
         {
             if (_progressTask is not null) await _progressTask;
-            _operationGate.Release(); _switching = false;
+            _operationGate.Release(); _switching = false; _waitingForCodex = false;
             ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = RefreshButton.IsEnabled = true;
             await RefreshStateAsync();
         }

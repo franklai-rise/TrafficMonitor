@@ -89,17 +89,7 @@ public sealed class WindowsSystemGateway : ISystemGateway
         lock (_routeCacheLock) _routeCache[adapterName] = (DateTimeOffset.UtcNow, routes);
         return routes;
     }
-    public bool IsCodexRunning()
-    {
-        foreach (var name in new[] { "codex", "codex-code-mode-host" })
-        {
-            var processes = Process.GetProcessesByName(name);
-            var running = processes.Length > 0;
-            foreach (var process in processes) process.Dispose();
-            if (running) return true;
-        }
-        return false;
-    }
+    public bool IsCodexRunning() => new WindowsCodexProcesses().Read().Count > 0;
     public void Start(string executablePath)
     {
         using var process = Process.Start(new ProcessStartInfo(executablePath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(executablePath) });

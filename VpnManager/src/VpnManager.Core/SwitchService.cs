@@ -33,6 +33,7 @@ public sealed class SwitchService
         {
             token.ThrowIfCancellationRequested();
             if (target != VpnMode.Direct) EnsureFilesExist(target);
+            if (_system.IsCodexRunning()) return new(false, "Codex 已重新启动，尚未切换网络。请重新确认退出后再切换。", initial, false, false);
             touched = true;
             if (target == VpnMode.Direct) { await StopAsync(VpnMode.Clash, token); await StopAsync(VpnMode.TiziGo, token); }
             else

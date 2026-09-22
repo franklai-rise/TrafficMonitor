@@ -222,7 +222,25 @@ public partial class MainWindow : Window
     {
         if (LogText.Text.Length > 50000) LogText.Clear();
         LogText.AppendText($"{DateTime.Now:HH:mm:ss} {text}{Environment.NewLine}");
-        LogText.ScrollToEnd(); OperationLog.Write(text);
+        ScrollLogToLatest(); OperationLog.Write(text);
+    }
+    private void ScrollLogToLatest()
+    {
+        // Wait for wrapping and layout before calculating the final scroll offset.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (_exiting) return;
+            LogText.UpdateLayout();
+            LogText.ScrollToEnd();
+        }));
+    }
+    private void LogText_Loaded(object sender, RoutedEventArgs e) => ScrollLogToLatest();
+    private void LatestLog_Click(object sender, RoutedEventArgs e) => ScrollLogToLatest();
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (OverviewScroll is null || LogText is null) return;
+        OverviewScroll.MaxHeight = Math.Max(240, Math.Min(430, ActualHeight - 420));
+        ScrollLogToLatest();
     }
     private void SetActionSummary(string text, string color)
     {

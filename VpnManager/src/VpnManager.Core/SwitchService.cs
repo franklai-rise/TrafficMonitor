@@ -38,13 +38,17 @@ public sealed class SwitchService
             if (target == VpnMode.Direct) { await StopAsync(VpnMode.Clash, token); await StopAsync(VpnMode.TiziGo, token); }
             else
             {
-                await StartAndVerifyAsync(target, token);
-                if (!await _system.ProbePathAsync(target, token)) throw new IOException("目标路径的初步 HTTPS 检查失败，尚未退出原 VPN。");
-                if (_system.IsCodexRunning()) throw new InvalidOperationException("等待期间 Codex 已启动，停止切换并尝试恢复原状态。");
+                // The two VPNs can interfere with each other's startup and HTTPS probes.
+                // Remove the old transport before starting or probing the target; recovery
+                // restores the captured state if any later step fails.
                 await StopAsync(target == VpnMode.Clash ? VpnMode.TiziGo : VpnMode.Clash, token);
+                if (_system.IsCodexRunning()) throw new InvalidOperationException("等待期间 Codex 已启动，停止切换并尝试恢复原状态。");
+                await StartAndVerifyAsync(target, token);
             }
             EnsureFinalTransport(target, _collector.Collect(forceRouteRefresh: true));
-            if (!await _system.ProbePathAsync(target, token)) throw new IOException("旧 VPN 退出后的独立 HTTPS 检查失败。");
+            if (_system.IsCodexRunning()) throw new InvalidOperationException("切换期间 Codex 已启动，停止切换并尝试恢复原状态。");
+            if (!await _system.ProbePathAsync(target, token)) throw new IOException("目标独立路径的基础 HTTPS 检查失败。");
+            if (_system.IsCodexRunning()) throw new InvalidOperationException("验证期间 Codex 已启动，停止切换并尝试恢复原状态。");
             foreach (var name in ProxyNames) _system.SetUserEnvironment(name, target == VpnMode.Clash ? $"http://127.0.0.1:{VpnPaths.ClashPort}" : null);
             _system.BroadcastEnvironmentChanged();
             var final = _collector.Collect(forceRouteRefresh: true);
@@ -103,16 +107,22 @@ public sealed class SwitchService
         if (clash && !TransportOff() && !OwnedClashPort()) throw new InvalidOperationException("无法核实 7890 所属进程，未停止任何程序。");
         if (_system.IsProcessRunningAtPath(exe))
         {
-            if (!_system.RequestCloseAtPath(exe)) throw new InvalidOperationException($"无法请求 {mode} 正常退出，请从该软件托盘手动退出。");
-            if (await WaitLoggedAsync(Stopped, TimeSpan.FromSeconds(25), $"{mode} 正常退出", token)) return;
-            // CloseMainWindow can mean hide-to-tray. Never misreport a still-running GUI as exited.
-            if (_system.IsProcessRunningAtPath(exe)) throw new InvalidOperationException($"{mode} 窗口已关闭但程序仍在后台，请从该软件托盘选择退出。");
+            // Electron's CloseMainWindow often only hides the GUI in the tray.
+            // A missing window is also normal after it has already been hidden.
+            if (_system.RequestCloseAtPath(exe) && await WaitLoggedAsync(Stopped, TimeSpan.FromSeconds(5), $"{mode} 正常退出", token)) return;
         }
-        if (TransportOff()) return;
-        if (clash && !OwnedClashPort()) throw new InvalidOperationException("7890 所属进程已变化，已停止操作。");
-        var names = clash ? VpnPaths.ClashCoreImageNames : new[] { "sing-box" };
-        var count = _system.TerminateProcessesInDirectory(directory, names);
-        OperationLog.Write($"停止 {mode} 已核实的残留内核：{count} 个。");
+        if (Stopped()) return;
+        if (clash && !TransportOff() && !OwnedClashPort()) throw new InvalidOperationException("7890 所属进程已变化，已停止操作。");
+        var guiNames = clash ? VpnPaths.ClashGuiImageNames : new[] { "TiziGo" };
+        var guiCount = _system.TerminateProcessesInDirectory(directory, guiNames);
+        OperationLog.Write($"停止 {mode} 已核实路径的残留界面进程：{guiCount} 个。");
+        if (clash && !TransportOff() && !OwnedClashPort()) throw new InvalidOperationException("7890 所属进程已变化，已停止操作。");
+        if (!TransportOff())
+        {
+            var coreNames = clash ? VpnPaths.ClashCoreImageNames : new[] { "sing-box" };
+            var coreCount = _system.TerminateProcessesInDirectory(directory, coreNames);
+            OperationLog.Write($"停止 {mode} 已核实路径的残留内核：{coreCount} 个。");
+        }
         if (!await WaitLoggedAsync(Stopped, TimeSpan.FromSeconds(20), $"{mode} 端口/网卡释放", token)) throw new InvalidOperationException($"{mode} 尚未完全退出，未提交代理变量。");
     }
     private async Task<bool> WaitLoggedAsync(Func<bool> condition, TimeSpan timeout, string label, CancellationToken token)
@@ -144,14 +154,19 @@ public sealed class SwitchService
         using var recovery = new CancellationTokenSource(TimeSpan.FromMinutes(6));
         var failures = false;
         try { RestoreEnvironment(environment); } catch { failures = true; }
+        // Stop the newly started transport first, then restore the original one.
         foreach (var mode in new[] { VpnMode.Clash, VpnMode.TiziGo })
         {
             var wasActive = mode == VpnMode.Clash ? initial.ClashProcess || initial.ClashPortListening : initial.TiziGoProcess || initial.TunAdapterUp;
-            try
-            {
-                if (wasActive) { EnsureFilesExist(mode); await StartAndVerifyAsync(mode, recovery.Token); }
-                else await StopAsync(mode, recovery.Token);
-            }
+            if (wasActive) continue;
+            try { await StopAsync(mode, recovery.Token); }
+            catch { failures = true; }
+        }
+        foreach (var mode in new[] { VpnMode.Clash, VpnMode.TiziGo })
+        {
+            var wasActive = mode == VpnMode.Clash ? initial.ClashProcess || initial.ClashPortListening : initial.TiziGoProcess || initial.TunAdapterUp;
+            if (!wasActive) continue;
+            try { EnsureFilesExist(mode); await StartAndVerifyAsync(mode, recovery.Token); }
             catch { failures = true; }
         }
         try

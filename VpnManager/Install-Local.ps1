@@ -59,7 +59,7 @@ $stoppedManager = $false
 $stoppedTraffic = $false
 $success = $false
 $installMutex=$null; $ownsInstallMutex=$false
-$result = [ordered]@{success=$false; version='1.1.3'; backup=$backup; networkChanged=$false}
+$result = [ordered]@{success=$false; version='1.1.4'; backup=$backup; networkChanged=$false}
 try {
     $installMutex=New-Object Threading.Mutex($false,'Local\VpnManager.Installation')
     try {$ownsInstallMutex=$installMutex.WaitOne(0)} catch [Threading.AbandonedMutexException] {$ownsInstallMutex=$true}
@@ -180,7 +180,7 @@ public static class InstallNative {
     $shortcut=$shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath=$exe;$shortcut.Arguments='';$shortcut.WorkingDirectory=$state
     $shortcut.IconLocation=(Join-Path $state 'VpnManager-loop-v1.ico')+',0'
-    $shortcut.Description='VPN 管理器 1.1.3（普通打开仅刷新状态）';$shortcut.Save()
+    $shortcut.Description='VPN 管理器 1.1.4（普通打开仅刷新状态）';$shortcut.Save()
     $result.shortcut=$shortcutPath
     Trace-Step 'Files installed, configuring startup'
     if($InstallStartup) {

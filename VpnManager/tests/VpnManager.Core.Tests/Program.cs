@@ -20,34 +20,35 @@ await Run("Codex preflight",new(){Codex=true},VpnMode.Clash,(r,f)=>Check(!r.Succ
 await Run("Foreign port",new(){ClashPort=true,OwnsPort=false},VpnMode.Direct,(r,f)=>Check(!r.Success&&f.Mutations==0));
 var machine=FakeSystem.Clash(); machine.Machine["HTTPS_PROXY"]="foreign";
 await Run("Machine proxy conflict",machine,VpnMode.Direct,(r,f)=>Check(!r.Success&&f.Mutations==0));
-var normal=FakeSystem.Clash(); normal.User["NO_PROXY"]="custom,localhost";
-await Run("Clash to TiziGo",normal,VpnMode.TiziGo,(r,f)=>Check(r.Success&&r.FinalState.Mode==VpnMode.TiziGo&&f.Probes==2&&f.User["NO_PROXY"]=="custom,localhost"));
-await Run("TiziGo to Clash",FakeSystem.Tizi(),VpnMode.Clash,(r,f)=>Check(r.Success&&r.FinalState.ProxyMatchesClash&&!f.TiziAdapter&&f.Probes==2));
+var normal=FakeSystem.Clash(); normal.User["NO_PROXY"]="custom,localhost"; normal.RejectTiziIfClashPresent=true;
+await Run("Clash releases before TiziGo starts",normal,VpnMode.TiziGo,(r,f)=>Check(r.Success&&r.FinalState.Mode==VpnMode.TiziGo&&f.Probes==1&&f.User["NO_PROXY"]=="custom,localhost"));
+await Run("TiziGo to Clash",FakeSystem.Tizi(),VpnMode.Clash,(r,f)=>Check(r.Success&&r.FinalState.ProxyMatchesClash&&!f.TiziAdapter&&f.Probes==1));
 await Run("Direct mode",FakeSystem.Clash(),VpnMode.Direct,(r,f)=>Check(r.Success&&!f.ClashPort&&!r.FinalState.AnyUserProxy));
-var start=FakeSystem.Tizi(); start.StartFails=true;
+var start=FakeSystem.Tizi(); start.FailClashRestart=true;
 await Run("Target startup failure",start,VpnMode.Clash,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.TiziAdapter));
 var partial=FakeSystem.Clash(); partial.IncompleteStart=true;
 await Run("Incomplete target cleanup",partial,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&!f.TiziAdapter&&f.ClashPort));
 var existing=FakeSystem.Tizi(); existing.Routes.Remove("8000::/1");
 await Run("Existing partial TUN",existing,VpnMode.Clash,(r,f)=>Check(!r.Success&&f.Mutations==0));
-var denied=FakeSystem.Tizi(); denied.RefuseTiziClose=true;
-await Run("Denied stop cleans new target",denied,VpnMode.Clash,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&!f.ClashPort&&f.TiziAdapter));
+var denied=FakeSystem.Tizi(); denied.RefuseTiziClose=true;denied.KillFails=true;
+await Run("Denied stop does not start new target",denied,VpnMode.Clash,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&!f.ClashPort&&f.TiziAdapter));
 var hides=FakeSystem.Clash(); hides.GuiHides=true;
-await Run("Hide is not exit",hides,VpnMode.Direct,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.Kills==0));
+await Run("Hidden Clash tray is fully stopped",hides,VpnMode.Direct,(r,f)=>Check(r.Success&&!f.ClashGui&&!f.ClashPort&&f.Kills>0));
 var residual=FakeSystem.Clash(); residual.ResidualCore=true;
-await Run("Verified residual core",residual,VpnMode.Direct,(r,f)=>Check(r.Success&&f.Kills==1&&!f.ClashPort));
+await Run("Verified residual core",residual,VpnMode.Direct,(r,f)=>Check(r.Success&&f.Kills>=1&&!f.ClashPort));
 var noKill=FakeSystem.Clash(); noKill.ResidualCore=true; noKill.KillFails=true;
 await Run("Unstoppable core",noKill,VpnMode.Direct,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&r.FinalState.ProxyMatchesClash));
 var preProbe=FakeSystem.Clash(); preProbe.ProbeResults.Enqueue(false);
-await Run("Preliminary HTTPS failure",preProbe,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.ClosesClash==0&&!f.TiziAdapter));
+await Run("HTTPS failure restores original",preProbe,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.ClosesClash>0&&!f.TiziAdapter&&f.ClashPort));
 var postProbe=FakeSystem.Clash(); postProbe.ProbeResults.Enqueue(true);postProbe.ProbeResults.Enqueue(false);
-await Run("Independent HTTPS failure",postProbe,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.ClashPort&&!f.TiziAdapter&&f.Probes==2));
+await Run("Independent HTTPS success",postProbe,VpnMode.TiziGo,(r,f)=>Check(r.Success&&f.TiziAdapter&&!f.ClashPort&&f.Probes==1));
 var recovery=FakeSystem.Clash(); recovery.ProbeResults.Enqueue(true); recovery.ProbeResults.Enqueue(false); recovery.FailClashRestart=true;
+recovery.ProbeResults.Clear();recovery.ProbeResults.Enqueue(false);
 await Run("Failed recovery reported",recovery,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&!r.RestoreSucceeded&&r.Summary.Contains("手动恢复")));
 var env=FakeSystem.Tizi();env.FailEnvironmentOnce=true;env.User["HTTP_PROXY"]="original";
 await Run("Partial environment write rollback",env,VpnMode.Clash,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.User["HTTP_PROXY"]=="original"&&!f.ClashPort));
 var codex=FakeSystem.Clash();codex.CodexOnStart=true;
-await Run("Codex starts during wait",codex,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.ClosesClash==0));
+await Run("Codex starts during wait",codex,VpnMode.TiziGo,(r,f)=>Check(!r.Success&&r.RestoreSucceeded&&f.ClosesClash>0));
 
 var canceled=FakeSystem.Clash(); using var cts=new CancellationTokenSource();canceled.OnStart=cts.Cancel;
 var cancelResult=await Setup(canceled).s.SwitchAsync(VpnMode.TiziGo,cts.Token);
@@ -92,7 +93,7 @@ Console.WriteLine($"All {passed} offline checks passed. No real VPN, routes, env
 } finally { Directory.Delete(root,true); }
 
 sealed class FakeSystem:ISystemGateway {
-public bool ClashGui,ClashPort,TiziGui,TiziAdapter,Codex,StartFails,IncompleteStart,RefuseTiziClose,GuiHides,ResidualCore,KillFails,FailClashRestart,FailEnvironmentOnce,CodexOnStart;
+public bool ClashGui,ClashPort,TiziGui,TiziAdapter,Codex,IncompleteStart,RefuseTiziClose,GuiHides,ResidualCore,KillFails,FailClashRestart,FailEnvironmentOnce,CodexOnStart,RejectTiziIfClashPresent;
 public bool OwnsPort=true;public int Starts,Kills,Mutations,Probes,ClosesClash;public Action? OnStart;public TaskCompletionSource? HoldFirstWait;private bool held;
 public HashSet<string> Routes=new();public Dictionary<string,string?> User=new(StringComparer.OrdinalIgnoreCase),Machine=new(StringComparer.OrdinalIgnoreCase);public Queue<bool> ProbeResults=new();
 public static FakeSystem Clash(){var f=new FakeSystem{ClashGui=true,ClashPort=true};foreach(var n in new[]{"HTTP_PROXY","HTTPS_PROXY","ALL_PROXY"})f.User[n]="http://127.0.0.1:7890";return f;}
@@ -104,9 +105,9 @@ public bool IsPortOwnedBy(int p,string d,IReadOnlyCollection<string> n)=>ClashPo
 public bool IsAdapterUp(string n)=>TiziAdapter;
 public IReadOnlyCollection<string> GetRoutesForAdapter(string n,bool forceRefresh=false)=>Routes;
 public bool IsCodexRunning()=>Codex;
-public void Start(string p){Starts++;Mutations++;if(StartFails||ClashPath(p)&&FailClashRestart)return;if(ClashPath(p)){ClashGui=ClashPort=true;}else{TiziGui=TiziAdapter=true;Routes.UnionWith(["0.0.0.0/1","128.0.0.0/1","::/1","8000::/1"]);if(IncompleteStart)Routes.Remove("8000::/1");}if(CodexOnStart)Codex=true;OnStart?.Invoke();}
+public void Start(string p){Starts++;Mutations++;if(ClashPath(p)&&FailClashRestart)return;if(ClashPath(p)){ClashGui=ClashPort=true;}else{if(RejectTiziIfClashPresent&&ClashPort)throw new IOException("Clash still owns the port");TiziGui=TiziAdapter=true;Routes.UnionWith(["0.0.0.0/1","128.0.0.0/1","::/1","8000::/1"]);if(IncompleteStart)Routes.Remove("8000::/1");}if(CodexOnStart)Codex=true;OnStart?.Invoke();}
 public bool RequestCloseAtPath(string p){Mutations++;if(!ClashPath(p)&&RefuseTiziClose)return false;if(ClashPath(p))ClosesClash++;if(GuiHides)return true;if(ClashPath(p)){ClashGui=false;if(!ResidualCore)ClashPort=false;}else{TiziGui=false;if(!ResidualCore){TiziAdapter=false;Routes.Clear();}}return true;}
-public int TerminateProcessesInDirectory(string d,IReadOnlyCollection<string> n){Mutations++;Kills++;if(KillFails)return 0;if(n.Contains("sing-box")){TiziAdapter=false;Routes.Clear();}else ClashPort=false;return 1;}
+public int TerminateProcessesInDirectory(string d,IReadOnlyCollection<string> n){Mutations++;Kills++;if(KillFails)return 0;if(n.Contains("TiziGo")){var active=TiziGui;TiziGui=false;return active?1:0;}if(n.Contains("sing-box")){var active=TiziAdapter;TiziAdapter=false;Routes.Clear();return active?1:0;}if(n.Contains("Clash for Windows")){var active=ClashGui;ClashGui=false;return active?1:0;}var core=ClashPort;ClashPort=false;return core?1:0;}
 public async Task<bool> WaitUntilAsync(Func<bool> c,TimeSpan timeout,CancellationToken t){if(HoldFirstWait!=null&&!held){held=true;await HoldFirstWait.Task.WaitAsync(t);}t.ThrowIfCancellationRequested();return c();}
 public Task<bool> ProbePathAsync(VpnMode mode,CancellationToken t){t.ThrowIfCancellationRequested();Probes++;return Task.FromResult(ProbeResults.Count==0||ProbeResults.Dequeue());}
 public string? GetUserEnvironment(string n)=>User.GetValueOrDefault(n);

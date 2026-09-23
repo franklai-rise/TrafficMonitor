@@ -32,6 +32,8 @@ private:
     mutable std::recursive_mutex m_mutex;
     std::wstring m_value{ L"VPN 状态过期" };
     std::wstring m_tooltip{ L"VPN 管理器尚未写入状态快照。" };
+    std::wstring m_radar_value{ L"GPT 雷达同步中" };
+    mutable int m_vpn_width{ 320 };
     VpnDisplaySettings m_settings;
     std::chrono::steady_clock::time_point m_last_snapshot_read{};
     void LoadDisplaySettings();

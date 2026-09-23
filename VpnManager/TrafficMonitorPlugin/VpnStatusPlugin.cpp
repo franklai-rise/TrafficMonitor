@@ -6,6 +6,7 @@
 #include <regex>
 #include <cstdio>
 #include <algorithm>
+#include <ctime>
 
 namespace
 {
@@ -28,6 +29,31 @@ namespace
     std::wstring SettingsPath()
     {
         return UserLocalAppData() + L"\\VpnManager\\vpn-display-settings.ini";
+    }
+    std::wstring RadarStatePath()
+    {
+        return UserLocalAppData() + L"\\CodexRadarTrafficMonitor\\status.ini";
+    }
+    std::wstring RadarDisplayValue()
+    {
+        const auto path = RadarStatePath();
+        // The host may create status.ini after TrafficMonitor starts; discard the Win32 INI cache.
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, path.c_str());
+        wchar_t value[2048]{};
+        GetPrivateProfileStringW(L"status", L"value", L"GPT 雷达同步中", value, 2048, path.c_str());
+        std::wstring result = value;
+        if (result.empty()) result = L"GPT 雷达同步中";
+        const auto updated = GetPrivateProfileIntW(L"status", L"updatedUnixSeconds", 0, path.c_str());
+        const auto stale = GetPrivateProfileIntW(L"status", L"stale", 1, path.c_str());
+        const auto now = static_cast<long long>(std::time(nullptr));
+        if ((stale != 0 || (updated > 0 && now - updated > 300)) && result.rfind(L"! ", 0) != 0)
+            result = L"! " + result;
+        const std::wregex scores(LR"(Astra\s+([0-9.]+)\s*\|\s*Sol\s+([0-9.]+)\s*\|\s*Luna\s+([0-9.]+))");
+        std::wsmatch match;
+        if (std::regex_search(result, match, scores))
+            result = (result.rfind(L"! ", 0) == 0 ? L"! " : L"") +
+                std::wstring(L"A") + match[1].str() + L" · S" + match[2].str() + L" · L" + match[3].str();
+        return result;
     }
     std::wstring Utf8ToWide(const std::string& value)
     {
@@ -135,6 +161,7 @@ void VpnStatusItem::Refresh(bool force)
     if (!force && now - m_last_snapshot_read < std::chrono::seconds(1)) return;
     m_last_snapshot_read = now;
     LoadDisplaySettings();
+    m_radar_value = RadarDisplayValue();
     const auto path = StatePath();
     std::error_code error;
     if (!std::filesystem::exists(path, error) || std::filesystem::last_write_time(path, error) < std::filesystem::file_time_type::clock::now() - std::chrono::seconds(10))
@@ -172,7 +199,9 @@ int VpnStatusItem::GetItemWidthEx(void* hDC) const
     const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
     const auto previous = SelectObject(dc, font); SIZE size{}; int widest = 0; size_t start = 0;
     while (start <= m_value.size()) { const auto end = m_value.find(L'\n', start); const auto length = (end == std::wstring::npos ? m_value.size() : end) - start; GetTextExtentPoint32W(dc, m_value.c_str() + start, static_cast<int>(length), &size); widest = widest > size.cx ? widest : size.cx; if (end == std::wstring::npos) break; start = end + 1; }
-    SelectObject(dc, previous); DeleteObject(font); return widest + 12;
+    SelectObject(dc, previous); DeleteObject(font);
+    m_vpn_width = (std::max)(320, widest + 20);
+    return m_vpn_width + 16 + 310;
 }
 void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
 {
@@ -189,14 +218,24 @@ void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
     SelectObject(dc, font); SetTextColor(dc, m_settings.color); SetBkMode(dc, TRANSPARENT);
     const UINT format = DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX |
         (m_settings.alignment == IPluginDrawer::CENTER ? DT_CENTER : m_settings.alignment == IPluginDrawer::RIGHT ? DT_RIGHT : DT_LEFT);
-    RECT first{ x + 6, y, x + w - 6, y + rowHeight };
+    const int splitX = x + (std::min)(m_vpn_width, w - 60);
+    RECT first{ x + 6, y, splitX - 6, y + rowHeight };
     const auto line1 = twoLines ? m_value.substr(0, split) : m_value;
     DrawTextW(dc, line1.c_str(), -1, &first, format);
     if (twoLines) {
         auto line2 = m_value.substr(split + 1); std::replace(line2.begin(), line2.end(), L'\n', L' ');
-        RECT second{ x + 6, y + rowHeight, x + w - 6, y + h }; DrawTextW(dc, line2.c_str(), -1, &second, format);
+        RECT second{ x + 6, y + rowHeight, splitX - 6, y + h }; DrawTextW(dc, line2.c_str(), -1, &second, format);
     }
-    RestoreDC(dc, saved); DeleteObject(font);
+    RECT radarLabel{ splitX + 16, y, x + w - 6, y + h / 2 };
+    RECT radarValue{ splitX + 16, y + h / 2, x + w - 6, y + h };
+    const auto radarFont = CreateFontW(-MulDiv(9, GetDeviceCaps(dc, LOGPIXELSY), 72), 0, 0, 0, FW_NORMAL,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    SelectObject(dc, radarFont);
+    SetTextColor(dc, RGB(235, 241, 249));
+    DrawTextW(dc, L"Codex 雷达", -1, &radarLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(dc, m_radar_value.c_str(), -1, &radarValue, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    RestoreDC(dc, saved); DeleteObject(radarFont); DeleteObject(font);
 }int VpnStatusItem::OnMouseEvent(MouseEventType type, int, int, void*, int)
 {
     if (type != MT_LCLICKED) return 0;
@@ -212,6 +251,6 @@ void VpnStatusPlugin::DataRequired() { m_item.Refresh(); }
 const wchar_t* VpnStatusPlugin::GetTooltipInfo() { thread_local std::wstring tooltip; tooltip = m_item.Tooltip(); return tooltip.c_str(); }
 const wchar_t* VpnStatusPlugin::GetInfo(PluginInfoIndex index)
 {
-    switch (index) { case TMI_NAME: return L"VPN 状态"; case TMI_DESCRIPTION: return L"读取 VPN 管理器状态快照并显示在任务栏。"; case TMI_AUTHOR: return L"Local"; case TMI_VERSION: return L"1.1.0"; case TMI_URL: return L""; default: return L""; }
+    switch (index) { case TMI_NAME: return L"VPN 状态"; case TMI_DESCRIPTION: return L"读取 VPN 状态及 Codex 雷达缓存并显示在任务栏。"; case TMI_AUTHOR: return L"Local"; case TMI_VERSION: return L"1.1.1"; case TMI_URL: return L""; default: return L""; }
 }
 extern "C" __declspec(dllexport) ITMPlugin* TMPluginGetInstance() { return &VpnStatusPlugin::Instance(); }

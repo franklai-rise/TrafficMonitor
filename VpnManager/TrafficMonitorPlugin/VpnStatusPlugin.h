@@ -15,28 +15,29 @@ struct VpnDisplaySettings
 class VpnStatusItem final : public IPluginItem
 {
 public:
+    explicit VpnStatusItem(int lineIndex = 0) : m_lineIndex(lineIndex) {}
     const wchar_t* GetItemName() const override;
     const wchar_t* GetItemId() const override;
     const wchar_t* GetItemLableText() const override;
     const wchar_t* GetItemValueText() const override;
     const wchar_t* GetItemValueSampleText() const override;
     bool IsCustomDraw() const override { return true; }
-    int GetItemWidth() const override { return 260; }
+    int GetItemWidth() const override { return 320; }
     int GetItemWidthEx(void* hDC) const override;
     void DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode) override;
-    int IsDoubleLineExclusive() const override { return 1; }
+    int IsDoubleLineExclusive() const override { return 0; }
     int OnMouseEvent(MouseEventType type, int x, int y, void* hWnd, int flag) override;
     void Refresh(bool force = false);
     std::wstring Tooltip() const { std::lock_guard<std::recursive_mutex> lock(m_mutex); return m_tooltip; }
 private:
+    int m_lineIndex{};
     mutable std::recursive_mutex m_mutex;
     std::wstring m_value{ L"VPN 状态过期" };
     std::wstring m_tooltip{ L"VPN 管理器尚未写入状态快照。" };
-    std::wstring m_radar_value{ L"GPT 雷达同步中" };
-    mutable int m_vpn_width{ 320 };
     VpnDisplaySettings m_settings;
     std::chrono::steady_clock::time_point m_last_snapshot_read{};
     void LoadDisplaySettings();
+    std::wstring CurrentLine() const;
 };
 
 class VpnStatusPlugin final : public ITMPlugin
@@ -49,6 +50,7 @@ public:
     const wchar_t* GetTooltipInfo() override;
 private:
     VpnStatusItem m_item;
+    VpnStatusItem m_second{ 1 };
 };
 
 extern "C" __declspec(dllexport) ITMPlugin* TMPluginGetInstance();

@@ -12,7 +12,7 @@
 
 任务栏按两行显示地区、接入方式/端口和软件。“显示样式…”只影响 VPN 项目，保存字体、字号、颜色、对齐。两行字号受实际任务栏高度限制，防止覆盖。规则模式标为“规则分流”；地区来自此次明确路径的出口查询，不能代表每个应用或所有分流请求。
 
-当前 TrafficMonitor 可执行文件未包含插件独占双行的排列实现。为了让 CPU/RAM 上下排列，VPN 与 Codex 雷达左右排列，VPN 插件在同一个绘制区域内读取雷达后台写入的 `status.ini` 并显示简短评分；任务栏配置仅启用 `vpn-manager-status-v1` 显示项。雷达插件 DLL 仍加载并负责启动后台，但不单独占据任务栏显示项。雷达后台程序必须实际安装在 `%USERPROFILE%\AppData\Local\CodexRadarTrafficMonitor`，否则会显示“同步中”。
+当前 TrafficMonitor 可执行文件未包含插件独占双行的排列实现。VPN 插件因此提供两个独立显示项：`vpn-manager-status-v1` 显示地区，`vpn-manager-status-line2-v1` 显示接入方式；TrafficMonitor 将它们配成上下两行。CPU/RAM 配成另一列，`codex-radar-score-v1` 由雷达插件独立显示在右侧。VPN 插件仅读取 VPN 管理器快照，不读取雷达文件，也不管理雷达后台；VPN 显示样式只影响这两个 VPN 行。
 
 ## 安装和更新
 

@@ -155,8 +155,8 @@ public interface ISystemGateway
     bool RequestCloseAtPath(string executablePath);
 
     /// 强制结束「镜像路径位于 directory 之下、且镜像名在 imageNames 中」的进程，返回结束的数量。
-    /// 只用于停止由服务/计划任务托管、关闭 GUI 后仍存活的内核进程（例如 Clash 的
-    /// clash-win64 与 clash-core-service）。仍然坚持"已核实路径"原则，不按通用进程名乱杀。
+    /// 用于停止隐藏到托盘的 GUI，或由服务/计划任务托管的残留内核进程。
+    /// 仍然坚持"已核实路径"原则，不按通用进程名乱杀。
     int TerminateProcessesInDirectory(string directory, IReadOnlyCollection<string> imageNames);
 
     Task<bool> WaitUntilAsync(Func<bool> condition, TimeSpan timeout, CancellationToken cancellationToken);

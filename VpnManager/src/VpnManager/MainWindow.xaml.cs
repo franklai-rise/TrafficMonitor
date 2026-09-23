@@ -20,11 +20,12 @@ public partial class MainWindow : Window
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly Forms.NotifyIcon _tray;
     private readonly bool _startupDirect;
-    private bool _switching, _initialized, _exiting;
+    private bool _switching, _initialized, _exiting, _exitAfterSwitch;
     private bool _waitingForCodex;
     private Task? _detailsTask;
     private Task? _progressTask;
     private CancellationTokenSource? _detailsCancellation;
+    private CancellationTokenSource? _switchCancellation;
     private VpnMode _observedMode = VpnMode.Unknown;
     private long _generation;
     private DateTimeOffset _lastDetailsAttempt = DateTimeOffset.MinValue;
@@ -44,7 +45,7 @@ public partial class MainWindow : Window
         var iconPath = Path.Combine(AppContext.BaseDirectory, "VpnManager.ico");
         _tray = new Forms.NotifyIcon { Icon = File.Exists(iconPath) ? new System.Drawing.Icon(iconPath) : System.Drawing.SystemIcons.Information, Text = "VPN 管理器", Visible = true, ContextMenuStrip = new Forms.ContextMenuStrip() };
         _tray.ContextMenuStrip.Items.Add("显示管理器", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
-        _tray.ContextMenuStrip.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(RequestExit));
+        _tray.ContextMenuStrip.Items.Add("退出管理器", null, (_, _) => Dispatcher.Invoke(RequestExit));
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
         var preference = Path.Combine(_paths.StateDirectory, "exit-ip-enabled.txt");
         try { if (File.Exists(preference)) ExitIpEnabled.IsChecked = File.ReadAllText(preference).Trim() == "true"; } catch (IOException) { } catch (UnauthorizedAccessException) { }
@@ -82,9 +83,29 @@ public partial class MainWindow : Window
     public void ShowFromActivationRequest() => ShowFromTray();
     public void RequestExit()
     {
-        if (_switching) { ShowFromTray(); Append("切换尚未结束，请等待恢复或切换完成后退出。"); return; }
+        if (_exiting) return;
+        if (_switching)
+        {
+            if (_exitAfterSwitch) return;
+            _exitAfterSwitch = true;
+            _switchCancellation?.Cancel();
+            ShowFromTray();
+            Append("已请求退出管理器：正在停止切换并恢复原状态，完成后自动退出。若持续卡住，可使用“紧急结束管理器”。");
+            SetActionSummary("正在停止切换并恢复原状态；完成后将自动退出管理器。", "#9A6700");
+            return;
+        }
         _exiting = true; _timer.Stop(); _detailsCancellation?.Cancel();
         _tray.Visible = false; System.Windows.Application.Current.Shutdown();
+    }
+    private void EmergencyExit_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_switching) { RequestExit(); return; }
+        var choice = System.Windows.MessageBox.Show(this,
+            "管理器仍在切换或恢复。立即结束进程会中断恢复，VPN 和代理变量可能需要手动处理。\n\n确定立即结束管理器进程吗？",
+            "紧急结束管理器", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (choice != MessageBoxResult.Yes) return;
+        OperationLog.Write("用户确认紧急结束管理器进程；切换或恢复可能未完成。");
+        System.Diagnostics.Process.GetCurrentProcess().Kill();
     }
     private void ClearPathDetails()
     {
@@ -198,19 +219,23 @@ public partial class MainWindow : Window
     private async Task SwitchAsync(VpnMode mode, bool interactive = true)
     {
         if (_switching || _exiting) return;
+        _switchCancellation = new CancellationTokenSource();
+        var switchToken = _switchCancellation.Token;
         _switching = true; _waitingForCodex = true; _detailsCancellation?.Cancel();
         ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = RefreshButton.IsEnabled = false;
         var label = mode == VpnMode.Direct ? "普通直连" : mode.ToString();
         var requestedAt = DateTime.Now;
         SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {label}…", "#1D4ED8");
         Append($"请求切换到 {label}…");
-        await _operationGate.WaitAsync();
+        var enteredGate = false;
         try
         {
-            if (_detailsTask is not null) await _detailsTask;
+            await _operationGate.WaitAsync(switchToken);
+            enteredGate = true;
+            if (_detailsTask is not null) await _detailsTask.WaitAsync(switchToken);
             var exit = await _codexExit.PrepareAsync(interactive,
                 () => Task.FromResult(new CodexExitDialog(label) { Owner = this }.ShowDialog() == true),
-                message => { Append(message); SetActionSummary(message, "#1D4ED8"); }, CancellationToken.None);
+                message => { Append(message); SetActionSummary(message, "#1D4ED8"); }, switchToken);
             if (!exit.Ready)
             {
                 Append(exit.Summary); SetActionSummary(exit.Summary, "#9A6700");
@@ -219,18 +244,23 @@ public partial class MainWindow : Window
             _waitingForCodex = false;
             Append(exit.Summary);
             ClearPathDetails();
-            var result = await Task.Run(() => _switcher.SwitchAsync(mode, CancellationToken.None));
+            var result = await Task.Run(() => _switcher.SwitchAsync(mode, switchToken));
             _lastError = result.Success ? null : result.Summary;
             Append(result.Summary);
             SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {label}…\n{DateTime.Now:HH:mm:ss} {result.Summary}", result.Success ? "#166534" : "#B42318");
         }
+        catch (OperationCanceledException) when (switchToken.IsCancellationRequested)
+        { Append("已取消等待；未完成的网络切换由管理器尝试恢复。"); }
         catch (Exception ex) { _lastError = $"操作未完成，请核实状态：{ex.Message}"; Append(_lastError); SetActionSummary(_lastError, "#B42318"); }
         finally
         {
             if (_progressTask is not null) await _progressTask;
-            _operationGate.Release(); _switching = false; _waitingForCodex = false;
+            if (enteredGate) _operationGate.Release();
+            _switching = false; _waitingForCodex = false;
+            _switchCancellation.Dispose(); _switchCancellation = null;
             ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = RefreshButton.IsEnabled = true;
-            await RefreshStateAsync();
+            if (_exitAfterSwitch) RequestExit();
+            else await RefreshStateAsync();
         }
     }
     private void Append(string text)

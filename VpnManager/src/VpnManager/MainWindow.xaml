@@ -34,7 +34,7 @@
      </StackPanel>
     </Border>
     <Grid Margin="0,12,0,12">
-     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <Button x:Name="ClashButton" Content="切换到 Clash" Margin="0,0,5,8" Background="#2563EB" Foreground="White" BorderBrush="#2563EB" Click="SwitchClash_Click"/>
      <Button x:Name="TiziGoButton" Grid.Column="1" Content="切换到 TiziGo" Margin="3,0,3,8" Click="SwitchTiziGo_Click"/>
@@ -42,6 +42,7 @@
      <Button x:Name="RefreshButton" Grid.Row="1" Content="刷新状态" Margin="0,0,5,0" Click="Refresh_Click"/>
      <Button Grid.Row="1" Grid.Column="1" Content="显示样式…" Margin="3,0" Click="DisplayStyle_Click"/>
      <CheckBox x:Name="ExitIpEnabled" Grid.Row="1" Grid.Column="2" Content="刷新出口 IP 和地区" IsChecked="True" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="5,0,0,0" ToolTip="每 60 秒通过当前路径查询 ping0.cc。"/>
+     <Button x:Name="EmergencyExitButton" Grid.Row="2" Grid.Column="2" Content="紧急结束管理器" Margin="5,8,0,0" Foreground="#B42318" BorderBrush="#F5B7B1" Click="EmergencyExit_Click" ToolTip="仅当正常退出等待太久时使用；切换中强制结束可能需要手动恢复 VPN。"/>
     </Grid>
     <Border Background="#EAF2FF" BorderBrush="#CFDFF6" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,12">
      <StackPanel><TextBlock Text="最近操作" FontWeight="SemiBold" Foreground="#355D91"/>

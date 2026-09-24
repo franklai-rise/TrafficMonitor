@@ -10,11 +10,13 @@ $root = Split-Path -Parent $PSCommandPath
 if (-not $ResultPath) { $ResultPath = Join-Path $root 'artifacts\install-result.json' }
 $publish = Join-Path $root 'artifacts\manager'
 $plugin = Join-Path $root 'artifacts\plugin\VpnStatusPlugin.dll'
+$statusHost = Join-Path $root 'artifacts\status-host\VpnStatusHost.exe'
+$pluginState = Join-Path $env:USERPROFILE 'AppData\Local\VpnStatusPlugin'
 $state = Join-Path $env:USERPROFILE 'AppData\Local\VpnManager'
 $exe = Join-Path $state 'VpnManager.exe'
 $trafficExe = Join-Path $TrafficRoot 'TrafficMonitor.exe'
 if (-not (Test-Path -LiteralPath (Join-Path $publish 'VpnManager.exe'))) { throw '请先构建并发布管理器。' }
-if ($InstallPlugin -and (-not (Test-Path -LiteralPath $plugin) -or -not (Test-Path -LiteralPath $trafficExe))) { throw '插件或 TrafficMonitor 主程序不存在。' }
+if ($InstallPlugin -and (-not (Test-Path -LiteralPath $plugin) -or -not (Test-Path -LiteralPath $statusHost) -or -not (Test-Path -LiteralPath $trafficExe))) { throw '插件、状态组件或 TrafficMonitor 主程序不存在。' }
 if ($InstallStartup -and -not (Test-Path -LiteralPath $trafficExe)) { throw 'TrafficMonitor 主程序不存在。' }
 if (-not $PSCmdlet.ShouldProcess($state, '备份并安装 VPN 管理器；不执行网络切换')) { return }
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -59,7 +61,7 @@ $stoppedManager = $false
 $stoppedTraffic = $false
 $success = $false
 $installMutex=$null; $ownsInstallMutex=$false
-$result = [ordered]@{success=$false; version='1.1.5'; backup=$backup; networkChanged=$false}
+$result = [ordered]@{success=$false; version='1.2.0'; backup=$backup; networkChanged=$false}
 try {
     $installMutex=New-Object Threading.Mutex($false,'Local\VpnManager.Installation')
     try {$ownsInstallMutex=$installMutex.WaitOne(0)} catch [Threading.AbandonedMutexException] {$ownsInstallMutex=$true}
@@ -150,6 +152,12 @@ public static class InstallNative {
         }
         $config=Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'TrafficMonitor\config.ini'
         if(Test-Path -LiteralPath $config){Copy-Item -LiteralPath $config -Destination (Join-Path $backup 'TrafficMonitor-config.ini')}
+        foreach($process in @(Get-Process VpnStatusHost -ErrorAction SilentlyContinue)) {
+            if($process.Path -eq (Join-Path $pluginState 'VpnStatusHost.exe')) {
+                if(-not $process.WaitForExit(5000)){throw 'TrafficMonitor 状态组件尚未退出，未覆盖运行文件。'}
+            }
+        }
+        Deploy-File $statusHost (Join-Path $pluginState 'VpnStatusHost.exe') 'VpnStatusHost.exe'
         Deploy-File $plugin (Join-Path $TrafficRoot 'plugins\VpnStatusPlugin.dll') 'VpnStatusPlugin.dll'
     }
     Trace-Step 'Plugin copied, installing manager files'
@@ -180,10 +188,17 @@ public static class InstallNative {
     $shortcut=$shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath=$exe;$shortcut.Arguments='';$shortcut.WorkingDirectory=$state
     $shortcut.IconLocation=(Join-Path $state 'VpnManager-loop-v1.ico')+',0'
-    $shortcut.Description='VPN 管理器 1.1.5（普通打开仅刷新状态）';$shortcut.Save()
+    $shortcut.Description='VPN 状态与 Codex 代理 1.2.0（不切换 VPN 软件）';$shortcut.Save()
     $result.shortcut=$shortcutPath
     Trace-Step 'Files installed, configuring startup'
     if($InstallStartup) {
+        $managerTask=Get-ScheduledTask -TaskName 'VpnManager-Logon' -ErrorAction SilentlyContinue
+        if($managerTask){
+            $managerXml=Export-ScheduledTask -TaskName 'VpnManager-Logon'
+            $managerXml | Set-Content -LiteralPath (Join-Path $backup 'VpnManager-Logon.xml') -Encoding Unicode
+            $taskChanges.Add([pscustomobject]@{name='VpnManager-Logon';path='\';xml=$managerXml})
+            Unregister-ScheduledTask -TaskName 'VpnManager-Logon' -Confirm:$false
+        }
         # TrafficMonitor can create its own per-user scheduled task. Keeping it beside
         # TrafficMonitor-Logon starts two instances at sign-in and triggers the
         # "already running" dialog, so preserve it for rollback and remove it.
@@ -199,15 +214,12 @@ public static class InstallNative {
         $principal=New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive -RunLevel Highest
         $settings=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
         $trigger=New-ScheduledTaskTrigger -AtLogOn -User $identity.Name
-        foreach($entry in @(@('VpnManager-Logon',$exe,'--startup-direct'),@('TrafficMonitor-Logon',$trafficExe,''))) {
-            $existing=Get-ScheduledTask -TaskName $entry[0] -ErrorAction SilentlyContinue
-            if($existing){Export-ScheduledTask -TaskName $entry[0] | Set-Content -LiteralPath (Join-Path $backup ($entry[0]+'.xml')) -Encoding Unicode}
-            $action=New-ScheduledTaskAction -Execute $entry[1] -WorkingDirectory (Split-Path -Parent $entry[1])
-            if($entry[2]){$action.Arguments=$entry[2]}
-            $oldXml=if($existing){Export-ScheduledTask -TaskName $entry[0]}else{$null}
-            $taskChanges.Add([pscustomobject]@{name=$entry[0];path='\';xml=$oldXml})
-            Register-ScheduledTask -TaskName $entry[0] -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-        }
+        $existing=Get-ScheduledTask -TaskName 'TrafficMonitor-Logon' -ErrorAction SilentlyContinue
+        if($existing){Export-ScheduledTask -TaskName 'TrafficMonitor-Logon' | Set-Content -LiteralPath (Join-Path $backup 'TrafficMonitor-Logon.xml') -Encoding Unicode}
+        $action=New-ScheduledTaskAction -Execute $trafficExe -WorkingDirectory $TrafficRoot
+        $oldXml=if($existing){Export-ScheduledTask -TaskName 'TrafficMonitor-Logon'}else{$null}
+        $taskChanges.Add([pscustomobject]@{name='TrafficMonitor-Logon';path='\';xml=$oldXml})
+        Register-ScheduledTask -TaskName 'TrafficMonitor-Logon' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
         $run='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
         foreach($name in @('VpnManager','TrafficMonitor')) {
             $properties=Get-ItemProperty -LiteralPath $run -ErrorAction SilentlyContinue
@@ -219,7 +231,7 @@ public static class InstallNative {
                 Remove-ItemProperty -LiteralPath $run -Name $name
             }
         }
-        $result.startup='Highest interactive logon tasks; Direct applies only at next login, subject to Codex guard'
+        $result.startup='Highest interactive logon tasks; monitor only, no VPN or proxy change at login'
     }
     $result.executableActualPath=Real-Path $exe
     if($result.executableActualPath -ne $exe){throw '最终安装路径校验失败。'}
@@ -245,7 +257,7 @@ public static class InstallNative {
     $result.rollbackErrors=$rollbackErrors
 } finally {
     try {
-        if(($success -and $Restart) -or $stoppedManager){Start-Process -FilePath $exe -WorkingDirectory $state}
+        if($stoppedManager){Start-Process -FilePath $exe -WorkingDirectory $state}
         if(($success -and $Restart -and $InstallPlugin) -or $stoppedTraffic){Start-Process -FilePath $trafficExe -WorkingDirectory $TrafficRoot}
     } catch {$result.restartError=$_.Exception.Message;$result.success=$false}
     Trace-Step 'Saving result'

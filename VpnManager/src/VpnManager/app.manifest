@@ -5,15 +5,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!--
-          VPN 管理器需要管理员权限，原因：
-            1. Clash for Windows 的 7890 端口由服务 clash-core-service（经计划任务启动）
-               托管的内核 clash-win64 提供，关闭 GUI 不会释放端口；要停止它们必须以
-               管理员身份运行，否则报 Access is denied。
-            2. TiziGo 的 TUN 网卡（sing-box 建立）同样涉及提权进程。
-            用户级环境变量写入本身不需要管理员权限。
-          没有这个清单时程序以普通用户运行，"切换到直连" 会因无法停止内核而失败。
-        -->
+        <!-- 读取 Clash 服务内核的真实路径、监听端口所属进程以及 TUN 路由时保留提权。
+             1.2.0 不再启动或停止 VPN；用户级代理变量写入本身不需要管理员权限。 -->
         <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>

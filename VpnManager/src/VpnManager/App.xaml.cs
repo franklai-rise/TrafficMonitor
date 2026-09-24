@@ -42,7 +42,7 @@ public partial class App : System.Windows.Application
             _activationWait = ThreadPool.RegisterWaitForSingleObject(_activationEvent, (_, _) => PostToWindow(w => w.ShowFromActivationRequest()), null, Timeout.Infinite, false);
             _shutdownWait = ThreadPool.RegisterWaitForSingleObject(_shutdownEvent, (_, _) => PostToWindow(w => w.RequestExit()), null, Timeout.Infinite, false);
             base.OnStartup(e);
-            MainWindow = new MainWindow(e.Args.Contains("--startup-direct"));
+            MainWindow = new MainWindow();
             MainWindow.Show();
         }
         catch (Exception ex)

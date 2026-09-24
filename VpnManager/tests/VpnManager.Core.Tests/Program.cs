@@ -60,6 +60,29 @@ concurrent.HoldFirstWait.SetResult();Check((await first).Success&&concurrent.Sta
 var missing=new FakeSystem();var missingSetup=Setup(missing);File.Delete(missingSetup.p.ClashExe);
 Check(!(await missingSetup.s.SwitchAsync(VpnMode.Clash,default)).Success&&missing.Mutations==0);passed++;Console.WriteLine("PASS Missing executable");
 
+var manualClash=FakeSystem.Clash();var manualClashSetup=Setup(manualClash);
+var clashProxy=new CodexProxyService(manualClash,manualClashSetup.c,manualClashSetup.p).Apply(VpnMode.Clash);
+Check(clashProxy.Success&&manualClash.Mutations==0&&manualClash.Starts==0&&manualClash.Kills==0);passed++;Console.WriteLine("PASS Existing Clash proxy unchanged");
+var manualTizi=FakeSystem.Tizi();manualTizi.User["NO_PROXY"]="custom,localhost";
+foreach(var name in new[]{"HTTP_PROXY","HTTPS_PROXY","ALL_PROXY"})manualTizi.User[name]="http://127.0.0.1:7890";
+var manualTiziSetup=Setup(manualTizi);
+var tiziProxy=new CodexProxyService(manualTizi,manualTiziSetup.c,manualTiziSetup.p).Apply(VpnMode.TiziGo);
+Check(tiziProxy.Success&&new[]{"HTTP_PROXY","HTTPS_PROXY","ALL_PROXY"}.All(name=>manualTizi.User[name] is null)
+    &&manualTizi.User["NO_PROXY"]=="custom,localhost"&&manualTizi.Starts==0&&manualTizi.Kills==0&&manualTizi.Probes==0);passed++;Console.WriteLine("PASS TiziGo TUN clears Codex proxy without VPN operations");
+var manualDirect=FakeSystem.Clash();var directSetup=Setup(manualDirect);
+var wrongTarget=new CodexProxyService(manualDirect,directSetup.c,directSetup.p).Apply(VpnMode.Direct);
+Check(!wrongTarget.Success&&manualDirect.Mutations==0);passed++;Console.WriteLine("PASS Manual VPN target mismatch does not write");
+var manualCodex=FakeSystem.Clash();manualCodex.Codex=true;var codexSetup=Setup(manualCodex);
+Check(!new CodexProxyService(manualCodex,codexSetup.c,codexSetup.p).Apply(VpnMode.Clash).Success&&manualCodex.Mutations==0);passed++;Console.WriteLine("PASS Running Codex blocks proxy change");
+var manualForeign=new FakeSystem{ClashPort=true,OwnsPort=false};var foreignSetup=Setup(manualForeign);
+Check(!new CodexProxyService(manualForeign,foreignSetup.c,foreignSetup.p).Apply(VpnMode.Clash).Success&&manualForeign.Mutations==0);passed++;Console.WriteLine("PASS Foreign proxy port is rejected");
+var manualMachine=FakeSystem.Tizi();manualMachine.Machine["HTTPS_PROXY"]="machine-proxy";var machineSetup=Setup(manualMachine);
+Check(!new CodexProxyService(manualMachine,machineSetup.c,machineSetup.p).Apply(VpnMode.TiziGo).Success&&manualMachine.Mutations==0);passed++;Console.WriteLine("PASS Machine proxy conflict is rejected");
+var manualFailure=FakeSystem.Tizi();manualFailure.User["HTTP_PROXY"]="previous";manualFailure.FailEnvironmentOnce=true;var failureSetup=Setup(manualFailure);
+var failedProxy=new CodexProxyService(manualFailure,failureSetup.c,failureSetup.p).Apply(VpnMode.TiziGo);
+Check(!failedProxy.Success&&failedProxy.RestoreSucceeded&&manualFailure.User["HTTP_PROXY"]=="previous"
+    &&manualFailure.Starts==0&&manualFailure.Kills==0);passed++;Console.WriteLine("PASS Partial proxy write restores original variables");
+
 var format=Setup(FakeSystem.Tizi()); File.WriteAllText(format.p.TiziGoRegionFile,"jp");
 Check(format.c.ToSnapshot(format.c.Collect()).DisplayText=="日本\nTUN · TiziGo");passed++;Console.WriteLine("PASS Two-line formatting");
 var directState=Setup(new()).c.Collect(exitIp:"203.0.113.8",exitCountry:"中国",exitLocation:"中国 上海市");

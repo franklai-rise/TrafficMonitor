@@ -1,7 +1,5 @@
 using System.Windows;
 using System.Windows.Threading;
-using System.Net;
-using System.Net.Http;
 using System.IO;
 using VpnManager.Core;
 using Forms = System.Windows.Forms;
@@ -13,35 +11,21 @@ public partial class MainWindow : Window
     private readonly VpnPaths _paths = VpnPaths.Default;
     private readonly StatusCollector _collector;
     private readonly SnapshotStore _store;
-    private readonly SwitchService _switcher;
-    private readonly CodexExitService _codexExit = new(new WindowsCodexProcesses());
-    private readonly ClashControllerResolver _clashResolver;
+    private readonly CodexProxyService _proxy;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly Forms.NotifyIcon _tray;
-    private readonly bool _startupDirect;
-    private bool _switching, _initialized, _exiting, _exitAfterSwitch;
-    private bool _waitingForCodex;
-    private Task? _detailsTask;
-    private Task? _progressTask;
-    private CancellationTokenSource? _detailsCancellation;
-    private CancellationTokenSource? _switchCancellation;
-    private VpnMode _observedMode = VpnMode.Unknown;
-    private long _generation;
-    private DateTimeOffset _lastDetailsAttempt = DateTimeOffset.MinValue;
-    private DateTimeOffset? _exitCapturedAt;
-    private string? _exitIp, _exitCountry, _exitLocation, _clashNode, _clashCountry, _lastError;
+    private bool _applyingProxy, _initialized, _exiting, _exitAfterProxyApply;
 
-    public MainWindow(bool startupDirect = false)
+    public MainWindow()
     {
-        _startupDirect = startupDirect;
         InitializeComponent();
         Title = $"VPN 管理器 · {App.BuildVersion}";
         Height = Math.Min(Height, SystemParameters.WorkArea.Height - 24);
         MinHeight = Math.Min(MinHeight, Height);
         _collector = new(_system, _paths); _store = new(_paths.StateDirectory);
-        _switcher = new(_system, _paths, _collector, _store); _clashResolver = new(_paths.ClashConfig);
-        OperationLog.Write($"启动：版本={App.BuildVersion}；startupDirect={startupDirect}；程序目录={AppContext.BaseDirectory}");
+        _proxy = new(_system, _collector, _paths);
+        OperationLog.Write($"启动：版本={App.BuildVersion}；仅监控与 Codex 代理设置；程序目录={AppContext.BaseDirectory}");
         var iconPath = Path.Combine(AppContext.BaseDirectory, "VpnManager.ico");
         _tray = new Forms.NotifyIcon { Icon = File.Exists(iconPath) ? new System.Drawing.Icon(iconPath) : System.Drawing.SystemIcons.Information, Text = "VPN 管理器", Visible = true, ContextMenuStrip = new Forms.ContextMenuStrip() };
         _tray.ContextMenuStrip.Items.Add("显示管理器", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
@@ -51,89 +35,60 @@ public partial class MainWindow : Window
         try { if (File.Exists(preference)) ExitIpEnabled.IsChecked = File.ReadAllText(preference).Trim() == "true"; } catch (IOException) { } catch (UnauthorizedAccessException) { }
         ExitIpEnabled.Checked += SaveExitPreference;
         ExitIpEnabled.Unchecked += SaveExitPreference;
-        _timer.Tick += async (_, _) => { if (_switching) await PublishSwitchProgressAsync(); else await RefreshStateAsync(); };
+        _timer.Tick += async (_, _) => await RefreshStateAsync();
         Loaded += InitializeOnce;
     }
     private async void InitializeOnce(object sender, RoutedEventArgs e)
     {
-        // Loaded can fire again after a hidden window is shown. Login action is once per process.
+        // Loaded can fire again after a hidden window is shown.
         if (_initialized) return;
         _initialized = true;
         _timer.Start();
-        if (_startupDirect) { Hide(); await SwitchAsync(VpnMode.Direct, interactive: false); }
-        else await RefreshStateAsync();
-    }
-    private Task PublishSwitchProgressAsync()
-    {
-        if (_progressTask is { IsCompleted: false }) return _progressTask;
-        var snapshot = new StatusSnapshot(StatusSnapshot.CurrentSchema,
-            _waitingForCodex ? "等待 Codex 退出\n当前连接保持不变" : "VPN 正在切换\n请等待完成",
-            _waitingForCodex ? "正在确认或等待 Codex 退出，尚未切换网络。" : "管理器正在切换或恢复 VPN，出口探测已暂停。结果请查看管理器。",
-            _waitingForCodex ? "WaitingForCodex" : "Switching", "", "VPN", "未知", "操作进度", null, DateTimeOffset.Now, true, null);
-        _progressTask = Task.Run(() => { try { _store.Write(snapshot); } catch (Exception ex) { OperationLog.Write($"切换进度写入失败：{ex.GetType().Name}"); } });
-        return _progressTask;
+        await RefreshStateAsync();
     }
     private void SaveExitPreference(object sender, RoutedEventArgs e)
     {
         try { AtomicFile.WriteAllText(Path.Combine(_paths.StateDirectory, "exit-ip-enabled.txt"), ExitIpEnabled.IsChecked == true ? "true" : "false"); }
         catch (Exception ex) { Append($"设置保存失败：{ex.Message}"); }
-        if (ExitIpEnabled.IsChecked != true) _detailsCancellation?.Cancel();
+        SignalHostRefresh();
     }
     private void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); }
     public void ShowFromActivationRequest() => ShowFromTray();
     public void RequestExit()
     {
         if (_exiting) return;
-        if (_switching)
+        if (_applyingProxy)
         {
-            if (_exitAfterSwitch) return;
-            _exitAfterSwitch = true;
-            _switchCancellation?.Cancel();
-            ShowFromTray();
-            Append("已请求退出管理器：正在停止切换并恢复原状态，完成后自动退出。若持续卡住，可使用“紧急结束管理器”。");
-            SetActionSummary("正在停止切换并恢复原状态；完成后将自动退出管理器。", "#9A6700");
+            _exitAfterProxyApply = true;
+            Append("代理变量写入即将完成；完成复核后退出管理器。");
             return;
         }
-        _exiting = true; _timer.Stop(); _detailsCancellation?.Cancel();
+        _exiting = true; _timer.Stop();
         _tray.Visible = false; System.Windows.Application.Current.Shutdown();
     }
-    private void EmergencyExit_Click(object sender, RoutedEventArgs e)
+    private static bool SignalHostRefresh()
     {
-        if (!_switching) { RequestExit(); return; }
-        var choice = System.Windows.MessageBox.Show(this,
-            "管理器仍在切换或恢复。立即结束进程会中断恢复，VPN 和代理变量可能需要手动处理。\n\n确定立即结束管理器进程吗？",
-            "紧急结束管理器", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-        if (choice != MessageBoxResult.Yes) return;
-        OperationLog.Write("用户确认紧急结束管理器进程；切换或恢复可能未完成。");
-        System.Diagnostics.Process.GetCurrentProcess().Kill();
-    }
-    private void ClearPathDetails()
-    {
-        _generation++;
-        _detailsCancellation?.Cancel();
-        _exitIp = _exitCountry = _exitLocation = _clashNode = _clashCountry = null;
-        _exitCapturedAt = null; _lastDetailsAttempt = DateTimeOffset.MinValue;
+        try { using var signal = EventWaitHandle.OpenExisting("Local\\VpnStatusPlugin.Refresh"); return signal.Set(); }
+        catch (WaitHandleCannotBeOpenedException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
     }
     private async Task<bool> RefreshStateAsync(bool waitForCollection = false)
     {
-        if (_exiting || _switching) return false;
+        if (_exiting || _applyingProxy) return false;
         if (waitForCollection) await _operationGate.WaitAsync();
         else if (!await _operationGate.WaitAsync(0)) return false;
         try
         {
-            if (_exiting || _switching) return false;
-            var state = await Task.Run(() => _collector.Collect());
-            if (_lastError?.StartsWith("本机状态刷新失败：", StringComparison.Ordinal) == true) _lastError = null;
-            if (state.Mode != _observedMode) { ClearPathDetails(); _observedMode = state.Mode; }
-            state = state with { ExitIp = _exitIp, ExitCountry = _exitCountry, ExitLocation = _exitLocation, ClashNode = _clashNode, ClashCountry = _clashCountry };
-            var snapshot = _collector.ToSnapshot(state, _lastError);
-            if (_exitCapturedAt is { } captured)
-            {
-                var age = DateTimeOffset.Now - captured;
-                snapshot = snapshot with { Tooltip = snapshot.Tooltip + $"\n出口采集：{captured:HH:mm:ss}（{(age.TotalSeconds > 90 ? "已过期，上次结果" : "仅代表该次探测出口")}）" };
-            }
-            await Task.Run(() => _store.Write(snapshot));
+            if (_exiting || _applyingProxy) return false;
+            var snapshot = _store.Read();
             if (_exiting) return false;
+            if (snapshot is null || !snapshot.IsFresh || DateTimeOffset.Now - snapshot.ObservedAt > TimeSpan.FromSeconds(10))
+            {
+                StatusText.Text = "VPN 状态过期";
+                StatusDetail.Text = "TrafficMonitor 插件尚未更新状态。请检查 TrafficMonitor 是否运行。";
+                _tray.Text = "VPN 状态过期";
+                return false;
+            }
             StatusText.Text = snapshot.DisplayText;
             StatusDetail.Text = snapshot.Tooltip.StartsWith(snapshot.DisplayText + "\n", StringComparison.Ordinal)
                 ? snapshot.Tooltip[(snapshot.DisplayText.Length + 1)..] : snapshot.Tooltip;
@@ -142,51 +97,16 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _lastError = $"本机状态刷新失败：{ex.Message}";
-            StatusDetail.Text = _lastError;
-            Append(_lastError);
+            StatusDetail.Text = $"读取插件状态失败：{ex.Message}";
+            Append(StatusDetail.Text);
             return false;
         }
         finally { _operationGate.Release(); }
-        _ = RefreshDetailsAsync(false);
         return true;
     }
-    private Task RefreshDetailsAsync(bool force)
-    {
-        if (_exiting || _switching || _observedMode is not (VpnMode.Clash or VpnMode.TiziGo or VpnMode.Direct)) return Task.CompletedTask;
-        if (_detailsTask is { IsCompleted: false }) return _detailsTask;
-        if (!force && DateTimeOffset.Now - _lastDetailsAttempt < TimeSpan.FromSeconds(60)) return Task.CompletedTask;
-        _lastDetailsAttempt = DateTimeOffset.Now;
-        _detailsCancellation?.Dispose();
-        _detailsCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-        _detailsTask = ReadDetailsAsync(_observedMode, _generation, ExitIpEnabled.IsChecked == true, _detailsCancellation.Token);
-        return _detailsTask;
-    }
-    private async Task ReadDetailsAsync(VpnMode mode, long generation, bool readExit, CancellationToken token)
-    {
-        try
-        {
-            if (mode == VpnMode.Clash)
-            {
-                var (node, country) = await _clashResolver.TryResolveAsync(token);
-                if (generation != _generation || _switching || _exiting) return;
-                if (node != _clashNode) { _exitIp = _exitCountry = _exitLocation = null; _exitCapturedAt = null; }
-                (_clashNode, _clashCountry) = (node, country);
-            }
-            if (!readExit) return;
-            using var handler = new HttpClientHandler { UseProxy = mode == VpnMode.Clash, Proxy = mode == VpnMode.Clash ? new WebProxy($"http://127.0.0.1:{VpnPaths.ClashPort}") : null };
-            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
-            var geo = Ping0GeoParser.Parse(await client.GetStringAsync("https://ping0.cc/geo", token));
-            if (generation != _generation || _switching || _exiting) return;
-            if (geo is null) throw new IOException("出口地区服务返回了无法识别的内容。");
-            _exitIp = geo.Ip; _exitCountry = geo.Country; _exitLocation = geo.Location; _exitCapturedAt = DateTimeOffset.Now;
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception ex) { if (!_exiting && generation == _generation) Append($"出口地区更新失败，保留带时间的上次结果：{ex.Message}"); }
-    }
-    private async void SwitchClash_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Clash);
-    private async void SwitchTiziGo_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.TiziGo);
-    private async void Direct_Click(object sender, RoutedEventArgs e) => await SwitchAsync(VpnMode.Direct);
+    private async void SwitchClash_Click(object sender, RoutedEventArgs e) => await ApplyProxyAsync(VpnMode.Clash);
+    private async void SwitchTiziGo_Click(object sender, RoutedEventArgs e) => await ApplyProxyAsync(VpnMode.TiziGo);
+    private async void Direct_Click(object sender, RoutedEventArgs e) => await ApplyProxyAsync(VpnMode.Direct);
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
         RefreshButton.IsEnabled = false; RefreshButton.Content = "正在刷新…";
@@ -194,14 +114,14 @@ public partial class MainWindow : Window
         Append("正在刷新本机状态与出口地区…");
         try
         {
-            if (!await RefreshStateAsync(true)) { Append("本机采集尚未完成，稍后自动更新。"); SetActionSummary("本机采集尚未完成，请查看状态详情；稍后将自动更新。", "#9A6700"); return; }
-            await RefreshDetailsAsync(true);
+            if (!SignalHostRefresh()) { Append("TrafficMonitor 状态组件未运行。"); SetActionSummary("TrafficMonitor 状态组件未运行，请先启动 TrafficMonitor。", "#9A6700"); return; }
+            await Task.Delay(1200);
             await RefreshStateAsync(true);
             Append($"本机状态已刷新：{DateTime.Now:HH:mm:ss}；出口结果及采集时间见状态详情。");
             SetActionSummary($"{DateTime.Now:HH:mm:ss} 本机状态已刷新。\n出口信息以状态详情中的采集时间为准。", "#166534");
         }
         catch (Exception ex) { Append($"刷新失败：{ex.Message}"); SetActionSummary($"刷新失败：{ex.Message}", "#B42318"); }
-        finally { RefreshButton.Content = "刷新状态"; RefreshButton.IsEnabled = !_switching; }
+        finally { RefreshButton.Content = "刷新状态"; RefreshButton.IsEnabled = !_applyingProxy; }
     }
     private void DisplayStyle_Click(object sender, RoutedEventArgs e)
     {
@@ -216,51 +136,35 @@ public partial class MainWindow : Window
         var actions = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right }; var cancel = new System.Windows.Controls.Button { Content = "取消", Width = 80, Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.Close(); var save = new System.Windows.Controls.Button { Content = "保存", Width = 80, IsDefault = true }; save.Click += (_, _) => { if (!int.TryParse(size.Text, out var value) || value is < 8 or > 28 || !System.Text.RegularExpressions.Regex.IsMatch(color.Text, "^#[0-9A-Fa-f]{6}$")) { System.Windows.MessageBox.Show(dialog, "字号需为 8 到 28，颜色格式为 #RRGGBB。", "VPN 状态显示样式", MessageBoxButton.OK, MessageBoxImage.Warning); return; } try { DisplaySettings.Write(_paths.StateDirectory, new(font.Text.Trim() is { Length: > 0 } name ? name : "Microsoft YaHei UI", value, color.Text.ToUpperInvariant(), alignment.SelectedIndex switch { 1 => "center", 2 => "right", _ => "left" })); Append("已保存 VPN 状态的独立显示样式；TrafficMonitor 将在下一次刷新应用。"); dialog.Close(); } catch (Exception ex) { System.Windows.MessageBox.Show(dialog, $"保存失败：{ex.Message}", "VPN 状态显示样式"); } }; actions.Children.Add(cancel); actions.Children.Add(save); panel.Children.Add(actions); dialog.Content = panel; dialog.ShowDialog();
     }
 
-    private async Task SwitchAsync(VpnMode mode, bool interactive = true)
+    private async Task ApplyProxyAsync(VpnMode mode)
     {
-        if (_switching || _exiting) return;
-        _switchCancellation = new CancellationTokenSource();
-        var switchToken = _switchCancellation.Token;
-        _switching = true; _waitingForCodex = true; _detailsCancellation?.Cancel();
+        if (_applyingProxy || _exiting) return;
+        _applyingProxy = true;
         ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = RefreshButton.IsEnabled = false;
-        var label = mode == VpnMode.Direct ? "普通直连" : mode.ToString();
-        var requestedAt = DateTime.Now;
-        SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {label}…", "#1D4ED8");
-        Append($"请求切换到 {label}…");
+        var label = mode switch { VpnMode.Clash => "Clash 7890", VpnMode.TiziGo => "TiziGo TUN", _ => "普通直连" };
+        SetActionSummary($"{DateTime.Now:HH:mm:ss} 正在核实 {label} 并同步 Codex 代理…", "#1D4ED8");
+        Append($"请求同步 Codex 代理：{label}。VPN 软件保持由你手动控制。");
         var enteredGate = false;
         try
         {
-            await _operationGate.WaitAsync(switchToken);
+            await _operationGate.WaitAsync();
             enteredGate = true;
-            if (_detailsTask is not null) await _detailsTask.WaitAsync(switchToken);
-            var exit = await _codexExit.PrepareAsync(interactive,
-                () => Task.FromResult(new CodexExitDialog(label) { Owner = this }.ShowDialog() == true),
-                message => { Append(message); SetActionSummary(message, "#1D4ED8"); }, switchToken);
-            if (!exit.Ready)
-            {
-                Append(exit.Summary); SetActionSummary(exit.Summary, "#9A6700");
-                return;
-            }
-            _waitingForCodex = false;
-            Append(exit.Summary);
-            ClearPathDetails();
-            var result = await Task.Run(() => _switcher.SwitchAsync(mode, switchToken));
-            _lastError = result.Success ? null : result.Summary;
+            var result = await Task.Run(() => _proxy.Apply(mode));
             Append(result.Summary);
-            SetActionSummary($"{requestedAt:HH:mm:ss} 请求切换到 {label}…\n{DateTime.Now:HH:mm:ss} {result.Summary}", result.Success ? "#166534" : "#B42318");
+            SetActionSummary($"{DateTime.Now:HH:mm:ss} {result.Summary}", result.Success ? "#166534" : "#B42318");
         }
-        catch (OperationCanceledException) when (switchToken.IsCancellationRequested)
-        { Append("已取消等待；未完成的网络切换由管理器尝试恢复。"); }
-        catch (Exception ex) { _lastError = $"操作未完成，请核实状态：{ex.Message}"; Append(_lastError); SetActionSummary(_lastError, "#B42318"); }
+        catch (Exception ex)
+        {
+            var message = $"Codex 代理设置未完成，请核对变量：{ex.Message}";
+            Append(message); SetActionSummary(message, "#B42318");
+        }
         finally
         {
-            if (_progressTask is not null) await _progressTask;
             if (enteredGate) _operationGate.Release();
-            _switching = false; _waitingForCodex = false;
-            _switchCancellation.Dispose(); _switchCancellation = null;
+            _applyingProxy = false;
             ClashButton.IsEnabled = TiziGoButton.IsEnabled = DirectButton.IsEnabled = RefreshButton.IsEnabled = true;
-            if (_exitAfterSwitch) RequestExit();
-            else await RefreshStateAsync();
+            if (_exitAfterProxyApply) RequestExit();
+            else if (!_exiting) await RefreshStateAsync();
         }
     }
     private void Append(string text)
@@ -295,5 +199,5 @@ public partial class MainWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     { if (!_exiting) { e.Cancel = true; Hide(); } base.OnClosing(e); }
     protected override void OnClosed(EventArgs e)
-    { _exiting = true; _timer.Stop(); _detailsCancellation?.Cancel(); _tray.Visible = false; _tray.Dispose(); OperationLog.Write("程序退出"); base.OnClosed(e); }
+    { _exiting = true; _timer.Stop(); _tray.Visible = false; _tray.Dispose(); OperationLog.Write("程序退出"); base.OnClosed(e); }
 }

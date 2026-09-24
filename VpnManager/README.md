@@ -1,69 +1,36 @@
-# VPN 管理器 1.1.5
+# VPN 状态与 Codex 代理 1.2.0
 
-独立 WPF 管理器和 TrafficMonitor x64 状态插件。保留 DeepSeek 的 Clash 路径发现、管理员清单和操作日志，修正切换恢复、并发、刷新和部署检查。
+TrafficMonitor 的 VPN 插件会启动自己的状态组件，持续采集本机 VPN、出口 IP 与地区；管理器只读取状态，并按按钮同步 Codex 代理变量。Clash、TiziGo 的启动、退出和切换由用户在各自软件中手动完成；管理器不会操作它们的进程、网卡、路由或 Windows 系统代理，也不会退出或重启 Codex。
 
-## 使用
+## 使用顺序
 
-普通打开只读取状态，不启动或停止 VPN。关闭窗口会隐藏到托盘；托盘“退出管理器”会真正结束进程。若正在切换，它会取消等待、完成失败恢复后自动退出。窗口中的“紧急结束管理器”可在恢复也卡住时立即结束进程；切换中使用它可能留下未恢复的 VPN 或代理变量，按钮会再次确认。插件只读快照，单击只打开管理器。
+1. 自行完全退出 Codex。
+2. 自行切换 VPN 软件，等待管理器显示正确的当前连接。
+3. 点对应的“同步 Codex”按钮，再重新打开 Codex。
 
-手动切换时若 Codex 未完全退出，会显示“退出 Codex 并切换”确认框，默认取消。确认会中断 Codex 任务；先请求正常退出，15 秒后按路径和进程身份核实并结束残留进程，完全退出后才执行切换。退出失败保留当前连接，开机自动直连不弹框也不退出 Codex。选择 Clash / TiziGo 时可以启动相应客户端；客户端仍须安装并配置好。“关闭 VPN（直连）”退出已核实的 VPN 并清除三个用户级代理变量。不修改 Windows 系统代理或 NO_PROXY，仅在本次明确确认后退出 Codex，不自动重启。
+Clash 按钮把当前用户的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 设置为 `http://127.0.0.1:7890`。TiziGo 使用 TUN，不需要本地代理端口；TiziGo 按钮清除这三个变量。普通直连按钮也清除它们。这三个按钮只在观察到的 VPN 状态与所选目标一致、且 Codex 已退出时写入；TiziGo 与直连还会检查是否存在不能通过清除用户变量解决的机器级代理冲突。写入失败会尝试恢复原值。`NO_PROXY` 保持不变。这些是用户级变量，其他新启动的程序也可能继承；本程序不会修改已运行的 Codex 进程。
 
-每 2 秒采集本机状态；联网地区查询在独立异步任务中每 60 秒进行，不阻塞本机快照。可关闭“刷新出口 IP 和地区”。查询失败保留旧结果及采集时间，超过 90 秒标为过期。手动刷新有按钮反馈和高亮结果。
+管理器取消开机自启动；TrafficMonitor 继续开机启动，其 VPN 插件在管理器关闭时照常更新。旧版 `--startup-direct` 启动参数在本版不再执行任何网络操作。关闭窗口会隐藏到托盘；托盘“退出管理器”真正结束进程。正在写入代理变量时，退出请求会在复核完成后生效。
 
-任务栏按两行显示地区、接入方式/端口和软件。“显示样式…”只影响 VPN 项目，保存字体、字号、颜色、对齐。两行字号受实际任务栏高度限制，防止覆盖。规则模式标为“规则分流”；地区来自此次明确路径的出口查询，不能代表每个应用或所有分流请求。
+插件的独立状态组件每 2 秒采集本机状态；可选的 ping0.cc 出口地区查询每 60 秒在当前路径上进行。Clash 的地区查询明确使用 7890，本机 TiziGo/直连路径不使用 HTTP 代理。查询不会启动或切换 VPN。原生插件只读取独立组件写入的本地原子快照；VPN 两行字体、颜色和对齐可用管理器中的“显示样式…”单独设置，设定保存在本机。
 
-当前 TrafficMonitor 可执行文件未包含插件独占双行的排列实现。VPN 插件因此提供两个独立显示项：`vpn-manager-status-v1` 显示地区，`vpn-manager-status-line2-v1` 显示接入方式；TrafficMonitor 将它们配成上下两行。CPU/RAM 配成另一列，`codex-radar-score-v1` 由雷达插件独立显示在右侧。VPN 插件仅读取 VPN 管理器快照，不读取雷达文件，也不管理雷达后台；VPN 显示样式只影响这两个 VPN 行。
+## 安装和验证
 
-## 安装和更新
+需要 Windows x64 和 .NET 10 Desktop Runtime。构建后可双击 `Install.cmd`，或运行：
 
-需要 Windows x64、.NET 10 Desktop Runtime。发布目录为 artifacts/manager 和 artifacts/plugin。双击 Install.cmd，或：
-
-~~~powershell
+```powershell
 .\Install-Local.ps1 -InstallPlugin -InstallStartup -Restart
-~~~
+```
 
-默认 TrafficMonitor 路径可用 -TrafficRoot 指定；-WhatIf 只预览。安装脚本为 UTF-8 BOM，兼容 Windows PowerShell 5.1。
+安装脚本先备份现有文件与配置，再通过独立计划任务部署管理器和插件状态组件，避免 Codex 的 AppData 隔离视图干扰。脚本删除旧 `VpnManager-Logon`，保留 `TrafficMonitor-Logon`。安装过程不切换当前 VPN，也不改变代理变量；真实 Codex 请求需在用户手动切换、同步并重新打开 Codex 后验证。
 
-安装请求管理员权限，通过临时计划任务建立独立进程。MSIX 子进程即使没有包身份，仍可能继承文件重定向；显式 USERPROFILE 路径或 Resolve-Path 不足以证明真实安装位置。本版核查文件句柄的实际路径及文件哈希，结果写入 artifacts/install-result.json。
+离线构建与检查：
 
-安装目录为 %USERPROFILE%\AppData\Local\VpnManager，快捷方式放在 Windows 配置的桌面。更新保留显示样式和联网刷新开关。普通重启不传 --startup-direct，保持当前网络。
-
-普通直连状态也会按联网刷新设置访问 ping0.cc，显示当前出口地区、IP 和“普通直连”。它只观察当前路径，不会为了刷新而启动或切换 VPN。
-
--InstallStartup 注册当前用户登录、最高权限的 VpnManager-Logon 和 TrafficMonitor-Logon 任务。管理器的 --startup-direct 仅在下次登录的新进程执行一次，仍受 Codex 运行检查保护。重复打开、重新显示隐藏窗口和安装后重启都不执行直连。不要在当前 VPN 会话中手动运行登录任务。安装成功后移除对应旧 HKCU Run 项，避免管理员清单造成自启动失败或重复启动。
-
-旧管理器只有在确认切换按钮可用时才能更新；隐藏时需先显示窗口，正在切换时应等待。新版支持协作退出，切换期间拒绝退出。
-
-## 切换保护和局限
-
-1. 检查 Codex、端口归属、网卡/路由、机器级代理冲突。
-2. 记录本次状态及环境变量，退出旧 VPN（包括隐藏到托盘后仍在运行的、路径已核实的进程）。
-3. 确认旧 VPN 端口或网卡已释放，再启动目标并检查独立路径和基础 HTTPS，通过后提交代理变量。
-4. 失败时恢复原变量，清理新目标并恢复原 VPN；复核恢复结果，失败时明确要求手动恢复。
-
-基础 HTTPS 只说明收到有效 TLS/HTTP 响应，不证明 Codex 登录、WebSocket 或模型请求成功。401/403 不会被称为 Codex 已验证。Clash 检查显式使用 127.0.0.1:7890；TUN/直连检查禁用 HttpClient 代理继承。
-
-只操作已核实目录内、白名单名称的 VPN 界面和内核进程；7890 属于其他程序时不会结束它。若关闭窗口只是隐藏到托盘，会在短暂等待后清理已核实的残留进程，再确认端口或网卡释放；清理失败会中止切换并尝试恢复原状态。
-
-不保证切换零中断。真实双向切换、失败恢复、重启电脑及重新打开 Codex 请求，仍需在不依赖当前 VPN 的时段验收。
-
-## 构建与验证
-
-~~~powershell
+```powershell
 dotnet build .\VpnManager.sln -c Release
 dotnet run --project .\tests\VpnManager.Core.Tests -c Release
 dotnet publish .\src\VpnManager\VpnManager.csproj -c Release -r win-x64 --self-contained false -o .\artifacts\manager
-msbuild .\TrafficMonitorPlugin\VpnStatusPlugin.vcxproj /p:Configuration=Release /p:Platform=x64
-msbuild .\tests\VpnStatusPlugin.Tests\VpnStatusPlugin.Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-.\artifacts\plugin-tests\VpnStatusPlugin.Tests.exe
-~~~
+dotnet publish .\StatusHost\VpnStatusHost.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o .\artifacts\status-host
+```
 
-原生项目默认 v142，VS 2022 可传 /p:PlatformToolset=v143。仓库自动使用顶层 include/PluginInterface.h；独立目录可传 /p:TrafficMonitorIncludePath=路径。
-
-43 项核心离线检查使用模拟进程、路由、HTTP 和环境变量，不控制真实 VPN。原生测试使用临时目录，覆盖 3,000 字符中文详情、字符串转义、中文/emoji、缺失/过期/版本不符、两行裁剪和并发读取。
-
-日志在安装目录 logs/operations.log，超过 1 MB 轮转。状态快照使用唯一临时文件、串行写入和原子替换；插件共享读取允许替换，防止偶发写入失败。控制接口令牌不写日志，也不发到非回环地址。
-
-## 撤销
-
-安装前文件和 TrafficMonitor 配置保存到安装目录 backups/install-时间。退出两程序后可恢复备份二进制；只撤销插件则移除 plugins/VpnStatusPlugin.dll。自启动可在任务计划程序禁用上述两任务。撤销文件更新本身不会切换 VPN 或修改代理变量。
+插件可由 `TrafficMonitorPlugin\VpnStatusPlugin.vcxproj` 构建；原生回归程序位于 `tests\VpnStatusPlugin.Tests`。上述离线检查不会切换真实 VPN 或访问外网。安装结果在 `artifacts\install-result.json`，备份在本机管理器目录的 `backups` 中。

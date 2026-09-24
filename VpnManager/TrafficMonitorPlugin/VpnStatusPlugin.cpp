@@ -25,6 +25,19 @@ namespace
     {
         return UserLocalAppData() + L"\\VpnManager\\vpn-status.json";
     }
+    void EnsureStatusHost()
+    {
+        static auto lastAttempt = std::chrono::steady_clock::time_point{};
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastAttempt < std::chrono::seconds(8)) return;
+        lastAttempt = now;
+        const auto active = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\VpnStatusPlugin.Host");
+        if (active) { CloseHandle(active); return; }
+        const auto host = UserLocalAppData() + L"\\VpnStatusPlugin\\VpnStatusHost.exe";
+        if (GetFileAttributesW(host.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+        const auto args = L"--parent-pid=" + std::to_wstring(GetCurrentProcessId());
+        ShellExecuteW(nullptr, L"open", host.c_str(), args.c_str(), nullptr, SW_HIDE);
+    }
     std::wstring SettingsPath()
     {
         return UserLocalAppData() + L"\\VpnManager\\vpn-display-settings.ini";
@@ -131,6 +144,7 @@ void VpnStatusItem::Refresh(bool force)
 {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     try {
+    if (m_lineIndex == 0) EnsureStatusHost();
     const auto now = std::chrono::steady_clock::now();
     if (!force && now - m_last_snapshot_read < std::chrono::seconds(1)) return;
     m_last_snapshot_read = now;
@@ -139,7 +153,7 @@ void VpnStatusItem::Refresh(bool force)
     std::error_code error;
     if (!std::filesystem::exists(path, error) || std::filesystem::last_write_time(path, error) < std::filesystem::file_time_type::clock::now() - std::chrono::seconds(10))
     {
-        m_value = L"VPN 状态过期"; m_tooltip = L"VPN 管理器未在最近 10 秒更新状态。单击打开管理器。"; return;
+        m_value = L"VPN 状态过期"; m_tooltip = L"TrafficMonitor 状态组件未在最近 10 秒更新状态。"; return;
     }
     const auto json = ReadFile(path);
     if (!std::regex_search(json, std::regex("\"schemaVersion\"\\s*:\\s*1\\s*[,}]")) || !RecentObservation(JsonString(json, "observedAt"))) { m_value = L"VPN 状态过期"; m_tooltip = L"快照版本不支持或采集时间已过期。"; return; }

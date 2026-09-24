@@ -1,11 +1,11 @@
 # TrafficMonitor VPN 状态插件
 
-x64 C++ 插件，使用仓库 include/PluginInterface.h。仅读取管理器快照和独立样式，不访问网络或 VPN 控制接口。
+x64 C++ 插件，使用仓库 include/PluginInterface.h。插件启动独立的 `VpnStatusHost.exe`；原生绘制代码只读取状态快照和独立样式，不访问网络或 VPN 控制接口。状态组件随 TrafficMonitor 运行，不依赖管理器进程。
 
 - 两行绘制并按字体测宽；高度不足时缩小字号，长行截断。
 - 超过 10 秒未采集、快照缺失或版本不支持时显示“VPN 状态过期”。
 - 单击打开管理器。显示样式在管理器“显示样式…”中保存。
-- TrafficMonitor 可先于管理器启动；管理器写入状态后自动恢复显示。
+- TrafficMonitor 开机启动时自动启动状态组件；即使管理器没有打开，状态仍持续刷新。
 - 不修改其他监控项目的字体、布局和配置。
 
 构建、部署及离线测试见上级 README。

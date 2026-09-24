@@ -1,0 +1,9 @@
+artifacts/
+obj/
+Host/bin/
+Host/obj/
+Plugin/obj/
+Tests/bin/
+Tests/obj/
+Tests/Plugin/obj/
+tasks/

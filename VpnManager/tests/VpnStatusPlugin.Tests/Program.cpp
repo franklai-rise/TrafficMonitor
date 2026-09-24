@@ -2,7 +2,7 @@
 #include <thread>
 #include <iostream>
 #include <stdexcept>
-void Check(bool test) { if (!test) throw std::runtime_error("plugin assertion failed"); }
+void Check(bool test) { static int index = 0; ++index; if (!test) { std::cerr << "plugin assertion failed #" << index << std::endl; throw std::runtime_error("plugin assertion failed"); } }
 int main(int argc, char** argv)
 {
     if (argc == 3 && std::string(argv[1]) == "--probe-dll") {
@@ -32,7 +32,7 @@ int main(int argc, char** argv)
         return 0;
     }
     wchar_t temporary[MAX_PATH]{}; GetTempPathW(MAX_PATH, temporary);
-    const auto root = std::filesystem::path(temporary) / (L"VpnPluginTests-" + std::to_wstring(GetCurrentProcessId()));
+    const auto root = std::filesystem::path(temporary) / (L"VpnPluginTests-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
     std::filesystem::create_directories(root / L"AppData/Local/VpnManager");
     std::filesystem::create_directories(root / L"AppData/Local/CodexRadarTrafficMonitor");
     SetEnvironmentVariableW(L"USERPROFILE", root.c_str()); // This test process only.
@@ -61,6 +61,10 @@ int main(int argc, char** argv)
         fixture("日本\\nTUN · TiziGo"); item.Refresh(true); second.Refresh(true);
         Check(std::wstring(item.GetItemValueText()) == L"日本");
         Check(std::wstring(second.GetItemValueText()) == L"TUN · TiziGo");
+        fixture("美国 加利福尼亚州 洛杉矶 · 规则分流\\nHTTP/SOCKS5 :7890 · Clash"); item.Refresh(true); second.Refresh(true);
+        Check(std::wstring(item.GetItemValueText()) == L"美国·洛杉矶");
+        Check(std::wstring(second.GetItemValueText()) == L"H/S :7890 · Clash");
+        fixture("日本\\nTUN · TiziGo"); item.Refresh(true); second.Refresh(true);
         {
             std::ofstream radar(root / L"AppData/Local/CodexRadarTrafficMonitor/status.ini");
             radar << "[status]\nvalue=unparseable changed radar format\n";
@@ -87,8 +91,8 @@ int main(int argc, char** argv)
         info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32; info.bmiHeader.biCompression=BI_RGB;
         void* pixels{}; const auto bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
         const auto previous=SelectObject(dc,bitmap);
-        Check(item.GetItemWidthEx(dc)>=320);
-        Check(second.GetItemWidthEx(dc)>=320);
+        Check(item.GetItemWidthEx(dc)>=160 && item.GetItemWidthEx(dc)<220);
+        Check(second.GetItemWidthEx(dc)>=160 && second.GetItemWidthEx(dc)<220);
         for (int height : {16,24,32}) {
             memset(pixels,255,800*160*4);
             item.DrawItem(dc,10,10,320,height,false);

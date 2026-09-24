@@ -154,14 +154,32 @@ const wchar_t* VpnStatusItem::GetItemLableText() const { return L""; }
 std::wstring VpnStatusItem::CurrentLine() const
 {
     const auto split = m_value.find(L'\n');
-    if (m_lineIndex == 0) return m_value.substr(0, split);
+    if (m_lineIndex == 0)
+    {
+        auto line = m_value.substr(0, split);
+        for (const auto suffix : { L" · 规则分流", L" · 直连规则" })
+        {
+            const auto at = line.find(suffix);
+            if (at != std::wstring::npos) line.erase(at);
+        }
+        const auto firstSpace = line.find(L' ');
+        if (firstSpace != std::wstring::npos && line.rfind(L"VPN ", 0) != 0)
+        {
+            const auto lastSpace = line.rfind(L' ');
+            line = line.substr(0, firstSpace) + L"·" + line.substr(lastSpace + 1);
+        }
+        return line;
+    }
     if (split == std::wstring::npos) return {};
     auto line = m_value.substr(split + 1);
     std::replace(line.begin(), line.end(), L'\n', L' ');
+    if (line.rfind(L"HTTP/SOCKS5 ", 0) == 0) line.replace(0, 12, L"H/S ");
+    const auto direct = line.find(L" · 普通直连");
+    if (direct != std::wstring::npos) line.replace(direct, 7, L" · 直连");
     return line;
 }
 const wchar_t* VpnStatusItem::GetItemValueText() const { std::lock_guard<std::recursive_mutex> lock(m_mutex); thread_local std::wstring value; value = CurrentLine(); return value.c_str(); }
-const wchar_t* VpnStatusItem::GetItemValueSampleText() const { return m_lineIndex == 0 ? L"美国 加利福尼亚州 洛杉矶" : L"HTTP/SOCKS5 :7890 · Clash"; }
+const wchar_t* VpnStatusItem::GetItemValueSampleText() const { return m_lineIndex == 0 ? L"美国·洛杉矶" : L"H/S :7890 · Clash"; }
 void VpnStatusItem::LoadDisplaySettings()
 {
     const auto path = SettingsPath(); wchar_t font[LF_FACESIZE]{}, color[16]{}, align[16]{};
@@ -179,10 +197,11 @@ int VpnStatusItem::GetItemWidthEx(void* hDC) const
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     const auto dc = static_cast<HDC>(hDC); if (!dc) return 260; const int height = -MulDiv(m_settings.font_size, GetDeviceCaps(dc, LOGPIXELSY), 72);
     const auto font = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, m_settings.font_name.c_str());
-    const auto previous = SelectObject(dc, font); SIZE size{}; int widest = 0; size_t start = 0;
-    while (start <= m_value.size()) { const auto end = m_value.find(L'\n', start); const auto length = (end == std::wstring::npos ? m_value.size() : end) - start; GetTextExtentPoint32W(dc, m_value.c_str() + start, static_cast<int>(length), &size); widest = widest > size.cx ? widest : size.cx; if (end == std::wstring::npos) break; start = end + 1; }
+    const auto previous = SelectObject(dc, font); SIZE size{};
+    const auto line = CurrentLine();
+    GetTextExtentPoint32W(dc, line.c_str(), static_cast<int>(line.size()), &size);
     SelectObject(dc, previous); DeleteObject(font);
-    return (std::max)(320, widest + 20);
+    return (std::max)(160, static_cast<int>(size.cx) + 14);
 }
 void VpnStatusItem::DrawItem(void* hDC, int x, int y, int w, int h, bool)
 {

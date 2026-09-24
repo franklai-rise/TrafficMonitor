@@ -22,7 +22,7 @@ public:
     const wchar_t* GetItemValueText() const override;
     const wchar_t* GetItemValueSampleText() const override;
     bool IsCustomDraw() const override { return true; }
-    int GetItemWidth() const override { return 320; }
+    int GetItemWidth() const override { return 160; }
     int GetItemWidthEx(void* hDC) const override;
     void DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode) override;
     int IsDoubleLineExclusive() const override { return 0; }

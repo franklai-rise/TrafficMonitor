@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+  <PropertyGroup Label="Globals"><VCProjectVersion>16.0</VCProjectVersion><ProjectGuid>{8A6C6921-481A-42EA-890B-45B9E79A2D4E}</ProjectGuid><Keyword>Win32Proj</Keyword><RootNamespace>CodexRadarPlugin</RootNamespace><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v142</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'"><OutDir>$(ProjectDir)..\artifacts\plugin\</OutDir><IntDir>$(ProjectDir)obj\$(Configuration)\</IntDir><TrafficMonitorIncludePath Condition="Exists('$(ProjectDir)..\..\include\PluginInterface.h')">$(ProjectDir)..\..\include</TrafficMonitorIncludePath><TrafficMonitorIncludePath Condition="'$(TrafficMonitorIncludePath)'=='' and Exists('$(ProjectDir)..\..\_TrafficMonitor_source_review_20260816\include\PluginInterface.h')">$(ProjectDir)..\..\_TrafficMonitor_source_review_20260816\include</TrafficMonitorIncludePath><IncludePath>$(TrafficMonitorIncludePath);$(IncludePath)</IncludePath></PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'"><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp17</LanguageStandard><ConformanceMode>true</ConformanceMode><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><PreprocessorDefinitions>UNICODE;_UNICODE;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><SubSystem>Windows</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation><AdditionalDependencies>Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
+  <ItemGroup><ClInclude Include="RadarScorePlugin.h" /><ClCompile Include="RadarScorePlugin.cpp" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
